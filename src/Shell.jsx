@@ -1,13 +1,14 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
 // Accounting is the client's books. Transactions and Banking are this client's statement activity.
-// Dashboard metrics, the revenue chart, and outstanding invoices use the ledger. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments.
+// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { PERIODS } from "../shared/activity.js";
 import { formatMoney } from "../shared/money.js";
 import { Accounting } from "./Accounting.jsx";
 import { Banking } from "./Banking.jsx";
 import { Clients } from "./Clients.jsx";
+import { ExpenseModal, Expenses, ReceiptSetting, UpcomingBills } from "./Expenses.jsx";
 import { InvoiceModal, Invoices, OutstandingInvoices } from "./Invoices.jsx";
 import { ReceiptModal } from "./Receipt.jsx";
 import { Reports } from "./Reports.jsx";
@@ -277,7 +278,7 @@ function Cmp_de() {
               }} /><i style={{
                 height: `${outgoing}%`
               }} /></div><span>{label}</span></div>)}</div><div className="cash-legend"><span><i className="legend blue" />Cash in <b>$42,680</b></span><span><i className="legend light" />Cash out <b>$24,259</b></span></div></E></div>
-<div className="dashboard-lower"><E className="transactions-card"><Cmp_re title="Recent transactions" subtitle="Your latest account activity" action={<button className="text-button" onClick={() => e(`Transactions`)}>View all <C name="chevron" size={14} /></button>} /><Cmp_fe compact={!0} /></E><div className="right-stack"><OutstandingInvoices clientId={session.client?.id} onOpen={() => e(`Invoices`)} /><E><Cmp_re title="Upcoming bills" action={<button className="text-button" onClick={() => e(`Expenses`)}>View all</button>} /><div className="bill-row"><span className="date-chip"><b>28</b>May</span><span><b>Mercury Insurance</b><small>Insurance</small></span><strong>$1,240.00</strong></div><div className="bill-row"><span className="date-chip"><b>01</b>Jun</span><span><b>WeWork</b><small>Rent & lease</small></span><strong>$1,850.00</strong></div></E></div></div><E className="quick-actions"><div><span className="sparkle"><C name="sparkle" /></span><span><b>Quick actions</b><small>Save time on everyday tasks</small></span></div><div className="quick-buttons"><Cmp_w variant="secondary" icon="invoice" onClick={() => t(`invoice`)}>Create invoice</Cmp_w><Cmp_w variant="secondary" icon="upload" onClick={() => t(`upload`)}>Upload receipt</Cmp_w><Cmp_w variant="secondary" icon="arrows" onClick={() => t(`expense`)}>Record expense</Cmp_w><Cmp_w variant="secondary" icon="chart" onClick={() => e(`Reports`)}>Run a report</Cmp_w></div></E></div>;
+<div className="dashboard-lower"><E className="transactions-card"><Cmp_re title="Recent transactions" subtitle="Your latest account activity" action={<button className="text-button" onClick={() => e(`Transactions`)}>View all <C name="chevron" size={14} /></button>} /><Cmp_fe compact={!0} /></E><div className="right-stack"><OutstandingInvoices clientId={session.client?.id} onOpen={() => e(`Invoices`)} /><UpcomingBills clientId={session.client?.id} onOpen={() => e(`Expenses`)} /></div></div><E className="quick-actions"><div><span className="sparkle"><C name="sparkle" /></span><span><b>Quick actions</b><small>Save time on everyday tasks</small></span></div><div className="quick-buttons"><Cmp_w variant="secondary" icon="invoice" onClick={() => t(`invoice`)}>Create invoice</Cmp_w><Cmp_w variant="secondary" icon="upload" onClick={() => t(`upload`)}>Upload receipt</Cmp_w><Cmp_w variant="secondary" icon="arrows" onClick={() => t(`expense`)}>Record expense</Cmp_w><Cmp_w variant="secondary" icon="chart" onClick={() => e(`Reports`)}>Run a report</Cmp_w></div></E></div>;
 }
 
 function Cmp_fe({
@@ -334,7 +335,6 @@ function Ce({
   name: e
 }) {
   let {
-      openComposer: t,
       notify: n,
       session,
       onSession
@@ -343,9 +343,8 @@ function Ce({
     owner = session.user.role === `owner`;
   return <div className="page"><D title={e} subtitle={{
       Banking: `Connect accounts and keep every balance reconciled.`,
-      Expenses: `Track spending, receipts, and vendor payments.`,
       Settings: `Manage your company, team, and accounting preferences.`
-    }[e]} actions={<Cmp_w icon="plus" disabled={e === `Settings` && !owner} onClick={() => e === `Expenses` ? t(`expense`) : e === `Banking` ? n(`Secure bank connection flow opened`) : owner ? setInviteOpen(!0) : undefined}>{e === `Banking` ? `Connect account` : e === `Expenses` ? `Add expense` : `Invite team member`}</Cmp_w>} /><E className="generic-card"><span className="round-icon blue"><C name={e === `Banking` ? `bank` : e === `Expenses` ? `card` : `settings`} size={26} /></span><h2>{e} workspace</h2><p>Your {e.toLowerCase()} tools are organized and ready to use.</p><div className="generic-grid">{[`Overview`, `Activity`, `Rules`].map((label, index) => <div key={label}><span><C name={[`grid`, `arrows`, `settings`][index]} /></span><b>{label}</b><small>View and manage {label.toLowerCase()}</small></div>)}</div></E>{e === `Settings` ? <E className="table-card team-card"><Cmp_re title="Team" subtitle={`People who can sign in to ${session.firm.name}.`} /><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>{session.members.map(member => <tr key={member.id}><td><strong>{member.name}</strong></td><td>{member.email}</td><td>{member.roleLabel}</td></tr>)}</tbody></table></E> : null}{inviteOpen ? <InviteModal onClose={() => setInviteOpen(!1)} onCreated={next => {
+    }[e]} actions={<Cmp_w icon="plus" disabled={e === `Settings` && !owner} onClick={() => e === `Banking` ? n(`Secure bank connection flow opened`) : owner ? setInviteOpen(!0) : undefined}>{e === `Banking` ? `Connect account` : `Invite team member`}</Cmp_w>} /><E className="generic-card"><span className="round-icon blue"><C name={e === `Banking` ? `bank` : `settings`} size={26} /></span><h2>{e} workspace</h2><p>Your {e.toLowerCase()} tools are organized and ready to use.</p><div className="generic-grid">{[`Overview`, `Activity`, `Rules`].map((label, index) => <div key={label}><span><C name={[`grid`, `arrows`, `settings`][index]} /></span><b>{label}</b><small>View and manage {label.toLowerCase()}</small></div>)}</div></E>{e === `Settings` ? <E className="table-card team-card"><Cmp_re title="Team" subtitle={`People who can sign in to ${session.firm.name}.`} /><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>{session.members.map(member => <tr key={member.id}><td><strong>{member.name}</strong></td><td>{member.email}</td><td>{member.roleLabel}</td></tr>)}</tbody></table></E> : null}{e === `Settings` ? <ReceiptSetting session={session} onSession={onSession} /> : null}{inviteOpen ? <InviteModal onClose={() => setInviteOpen(!1)} onCreated={next => {
         setInviteOpen(!1);
         onSession(next);
       }} /> : null}</div>;
@@ -394,6 +393,7 @@ function Te({ session, onSession }) {
     [transactionTab, setTransactionTab] = (0, b.useState)(`all`),
     [transactionPeriod, setTransactionPeriod] = (0, b.useState)(PERIODS[0]),
     [invoiceVersion, setInvoiceVersion] = (0, b.useState)(0),
+    [expenseVersion, setExpenseVersion] = (0, b.useState)(0),
     m = e => {
       a(e), window.setTimeout(() => a(``), 3200);
     },
@@ -433,7 +433,7 @@ function Te({ session, onSession }) {
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Invoices key={`${session.client?.id}:${invoiceVersion}`} clientId={session.client?.id} onCreate={() => r(`invoice`)} /> : e === `Clients` ? <Clients selectedClientId={session.client?.id} onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Invoices key={`${session.client?.id}:${invoiceVersion}`} clientId={session.client?.id} onCreate={() => r(`invoice`)} /> : e === `Expenses` ? <Expenses key={`${session.client?.id}:${expenseVersion}`} clientId={session.client?.id} onCreate={() => r(`expense`)} /> : e === `Clients` ? <Clients selectedClientId={session.client?.id} onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,
@@ -448,7 +448,7 @@ function Te({ session, onSession }) {
                 l(!c), d(!1);
               }} aria-label="Notifications"><C name="bell" /><i /></button>{c && <div className="top-menu notification-menu"><div className="menu-title"><b>Notifications</b><button onClick={() => m(`All notifications marked read`)}>Mark all read</button></div><button onClick={() => h(`Transactions`)}><span className="notice-dot amber" /><span><b>12 transactions need review</b><small>Business checking · 8 minutes ago</small></span></button><button onClick={() => h(`Banking`)}><span className="notice-dot blue" /><span><b>Bank reconciliation completed</b><small>Business checking · Yesterday</small></span></button></div>}</div><span className="divider" /><div className="top-menu-wrap"><button className={`profile ${u ? `active` : ``}`} onClick={() => {
                 d(!u), l(!1);
-              }}><T initials={session.user.name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase()} color="navy" /><span><b>{session.user.name}</b><small>{session.user.roleLabel}</small></span><C name="chevron" size={14} /></button>{u && <div className="top-menu profile-menu"><span>{session.user.email}</span><button onClick={() => h(`Settings`)}><C name="settings" size={15} />Company settings</button><button onClick={() => m(`Profile settings opened`)}><C name="users" size={15} />Personal profile</button><button onClick={signOut}>Sign out</button></div>}</div></div></header><div className="content">{_}</div></main></div>{n === `upload` ? <ReceiptModal clientName={session.client?.name} clientId={session.client?.id} onClose={() => r(null)} /> : n === `invoice` ? <InvoiceModal onClose={() => r(null)} onSaved={() => { r(null); setInvoiceVersion(version => version + 1); h(`Invoices`); }} /> : n ? <Cmp_we type={n} onClose={() => r(null)} onSave={e => {
+              }}><T initials={session.user.name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase()} color="navy" /><span><b>{session.user.name}</b><small>{session.user.roleLabel}</small></span><C name="chevron" size={14} /></button>{u && <div className="top-menu profile-menu"><span>{session.user.email}</span><button onClick={() => h(`Settings`)}><C name="settings" size={15} />Company settings</button><button onClick={() => m(`Profile settings opened`)}><C name="users" size={15} />Personal profile</button><button onClick={signOut}>Sign out</button></div>}</div></div></header><div className="content">{_}</div></main></div>{n === `upload` ? <ReceiptModal clientName={session.client?.name} clientId={session.client?.id} onClose={() => r(null)} /> : n === `invoice` ? <InvoiceModal onClose={() => r(null)} onSaved={() => { r(null); setInvoiceVersion(version => version + 1); h(`Invoices`); }} /> : n === `expense` ? <ExpenseModal clientId={session.client?.id} onClose={() => r(null)} onSaved={() => { r(null); setExpenseVersion(version => version + 1); h(`Expenses`); }} /> : n ? <Cmp_we type={n} onClose={() => r(null)} onSave={e => {
       r(null), m(e);
     }} /> : null}{i && <div className="toast" role="status"><span><C name="check" size={15} /></span>{i}</div>}</ie.Provider>;
 }

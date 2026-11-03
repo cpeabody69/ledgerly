@@ -70,12 +70,15 @@ Request documents creates an open request on a client in the signed-in firm. The
 
 The Invoices screen lists the open client’s invoices. Create invoice saves a draft and does not post. Sending posts accounts receivable and service revenue. A recorded payment posts cash and clears receivable. The status is paid only when those payments cover the invoice. Voiding posts a new reversing entry. Metrics, the “of N invoices” footer, and paging describe the stored list. The dashboard’s outstanding invoices use the same rows. Nothing charges a card.
 
+## Expenses
+
+The Expenses screen lists the open client’s bills and paid expenses. Saving an expense posts the expense account and either accounts payable or cash. The journal memo is the vendor, and the line amount is the expense amount. Unpaid bills appear on the dashboard. A firm setting can require a phase 6 receipt before that post; the API refuses the expense when the receipt is missing.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:
 
-- The dashboard’s recent transactions, cash-flow card, and upcoming bills
-- The Expenses placeholder
-- The Settings overview cards
+- The dashboard’s recent transactions and cash-flow card
+- The Banking and Settings overview cards
 - Add company, exports other than a statement, Ledger AI, notifications, and personal profile
 - Budget vs. actuals, accounts receivable, and expense summary, which stay disabled

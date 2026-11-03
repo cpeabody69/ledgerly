@@ -1992,6 +1992,11 @@ inherits:false}
 .sign-in .button{width:100%;height:40px}
 .period-select{height:36px;border:1px solid #dbe2ea;border-radius:7px;padding:0 10px;background:#fff;color:#374a60;font-size:11px}
 .books-note{color:#285d49;padding:12px 17px 0;margin:0;font-size:12px}
+.check-row{display:flex;gap:10px;align-items:center;padding:4px 18px 8px;font-size:14px}
+.form-grid fieldset.field{border:0;margin:0;padding:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px}
+.form-grid fieldset legend{flex-basis:100%;font-size:12px;color:#607089;margin:0}
+.form-grid fieldset label{display:flex;gap:8px;align-items:center;font-size:13px;margin:0}
+.field input[type="radio"]{width:16px;height:16px;padding:0;border-radius:50%}
 .banking-layout{grid-template-columns:320px 1fr;align-items:start;gap:16px;display:grid}
 .banking-add{padding:0 18px 12px;display:grid;gap:10px}
 .account-list{display:grid}
