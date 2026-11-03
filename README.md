@@ -1,8 +1,8 @@
 # Ledgerly
 
-Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers. Phase 5 makes the Clients screen the firm’s client list and review queue. Phase 6 stores document requests and synthetic files for that firm.
+Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers. Phase 5 makes the Clients screen the firm’s client list and review queue. Phase 6 stores document requests and synthetic files for that firm. Phase 7 keeps invoices for the open client: a draft, a sent receivable, and a recorded payment.
 
-Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart, ledger, and statement activity. Invoices stay the published picture. They do not read these books.
+Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart, ledger, statement activity, and invoices.
 
 ## Run
 
@@ -66,13 +66,16 @@ The Clients screen and the company switcher list the same clients for the signed
 
 Request documents creates an open request on a client in the signed-in firm. The client file list and the receipt modal store a synthetic file and attach it to that request or to a transaction. View downloads the stored bytes. Removing a file writes an audit event, and removing the last file on a request opens it again. A file belongs to one firm. Another firm’s user gets no list entry and no bytes. There is no sharing link.
 
+## Invoices
+
+The Invoices screen lists the open client’s invoices. Create invoice saves a draft and does not post. Sending posts accounts receivable and service revenue. A recorded payment posts cash and clears receivable. The status is paid only when those payments cover the invoice. Voiding posts a new reversing entry. Metrics, the “of N invoices” footer, and paging describe the stored list. The dashboard’s outstanding invoices use the same rows. Nothing charges a card.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:
 
-- The dashboard’s recent transactions, cash-flow card, outstanding invoices, and upcoming bills
-- Invoices
+- The dashboard’s recent transactions, cash-flow card, and upcoming bills
 - The Expenses placeholder
 - The Settings overview cards
-- Add company, the invoice composer, exports other than a statement, Ledger AI, notifications, and personal profile
+- Add company, exports other than a statement, Ledger AI, notifications, and personal profile
 - Budget vs. actuals, accounts receivable, and expense summary, which stay disabled

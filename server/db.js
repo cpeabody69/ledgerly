@@ -7,6 +7,7 @@ import { ensureCharts } from "./ledger.js";
 import { ensureBanking } from "./banking.js";
 import { ensureFirmCrm } from "./clients.js";
 import { ensureDocuments } from "./documents.js";
+import { ensureInvoices } from "./invoices.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -89,6 +90,7 @@ export function openDatabase(dbPath) {
   ensureBanking(db);
   ensureFirmCrm(db);
   ensureDocuments(db);
+  ensureInvoices(db);
   return db;
 }
 

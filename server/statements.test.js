@@ -151,7 +151,8 @@ test("statements follow the ledger, and cash basis drops an accrual", async () =
 test("reports and dashboard metrics are not the published statement", () => {
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   const reports = readFileSync(new URL("../src/Reports.jsx", import.meta.url), "utf8");
-  assert.match(shell, /\$6,800\.00/);
+  assert.doesNotMatch(shell, /\$6,800\.00/);
+  assert.doesNotMatch(shell, /\$18,740\.00/);
   assert.match(shell, /Stripe Payments/);
   assert.doesNotMatch(shell, /\$84,240\.00/);
   assert.doesNotMatch(shell, /\$128,430\.62/);

@@ -162,7 +162,10 @@ test("two firms stay separate, sessions survive refresh, and staff cannot invite
     const db = new DatabaseSync(dbPath);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
     for (const name of ["firms", "users", "clients", "sessions", "audit_events"]) assert.ok(tables.includes(name));
-    for (const name of ["transactions", "invoices"]) assert.equal(tables.includes(name), false);
+    for (const name of ["transactions"]) assert.equal(tables.includes(name), false);
+    for (const name of ["invoices", "invoice_lines", "invoice_payments"]) assert.ok(tables.includes(name));
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM invoices").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM invoice_payments").get().count, 0);
     for (const name of ["accounts", "journal_entries", "journal_lines", "client_books", "bank_accounts", "bank_transactions", "reconciliations"]) assert.ok(tables.includes(name));
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_lines").get().count, 0);
