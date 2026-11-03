@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
+import { ensureCharts } from "./ledger.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -81,6 +82,7 @@ export function openDatabase(dbPath) {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(SCHEMA);
   seedIfEmpty(db);
+  ensureCharts(db);
   return db;
 }
 

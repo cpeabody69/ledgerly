@@ -1,6 +1,8 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
+// Accounting reads this client's books. Dashboard, Transactions, Invoices, and Reports stay the published picture.
 import { createContext, useContext, useMemo, useState } from "react";
+import { Accounting } from "./Accounting.jsx";
 
 const b = { createContext, useContext, useMemo, useState };
 
@@ -348,20 +350,6 @@ function Cmp_me({
     [a, o] = (0, b.useState)(``);
   return <div className="drawer-scrim" onMouseDown={t}><aside className="detail-drawer" aria-label={`${e.name} transaction details`} onMouseDown={e => e.stopPropagation()}><div className="drawer-header"><div><Cmp_ne tone={e.status === `For review` ? `amber` : `green`}>{e.status}</Cmp_ne><h2>{e.name}</h2><p>{e.detail}</p></div><button className="modal-close" onClick={t} aria-label="Close">×</button></div><div className="transaction-amount-block"><span>{e.type === `income` ? `Money in` : `Money out`}</span><strong className={e.type}>{e.amount}</strong><small>{e.date}, 2025</small></div><div className="drawer-section"><h3>Bank details</h3><dl><div><dt>Account</dt><dd>{e.bankDetail}</dd></div><div><dt>Statement description</dt><dd>{e.name.toUpperCase()}</dd></div><div><dt>Reference</dt><dd>TXN-{e.date.replace(/\D/g, ``)}-0482</dd></div></dl></div><div className="drawer-section"><h3>Accounting treatment</h3><label className="field"><span>Category</span><select value={r} onChange={e => i(e.target.value)}><option>Sales income</option><option>Consulting income</option><option>Software & hosting</option><option>Rent & lease</option><option>Payroll expense</option><option>Travel</option><option>Interest income</option></select></label><label className="field"><span>Internal note</span><textarea value={a} onChange={e => o(e.target.value)} placeholder="Add context for your accountant…" /></label></div><div className="reconciliation-callout"><span><C name="check" size={15} /></span><div><b>Bank feed verified</b><small>Imported from {e.bankDetail}</small></div></div><div className="drawer-footer"><Cmp_w variant="secondary" onClick={() => n(`Transaction excluded from reports`)}>Exclude</Cmp_w><Cmp_w onClick={() => n(`${e.name} saved to ${r}${a ? ` with note` : ``}`)}>Save changes</Cmp_w></div></aside></div>;
 }
-var he = [[`1000`, `Business Checking`, `Bank`, `$82,420.62`, `blue`], [`1010`, `Business Savings`, `Bank`, `$46,010.00`, `blue`], [`1200`, `Accounts Receivable`, `Current asset`, `$18,740.00`, `green`], [`2000`, `Accounts Payable`, `Current liability`, `$8,420.18`, `amber`], [`2100`, `Business Credit Card`, `Credit card`, `$3,284.90`, `purple`], [`4000`, `Sales Revenue`, `Income`, `$84,240.00`, `green`], [`5000`, `Cost of Services`, `Cost of goods sold`, `$12,680.00`, `coral`]];
-function Cmp_ge() {
-  let {
-      notify: e,
-      openComposer: t
-    } = O(),
-    [n, r] = (0, b.useState)(`Chart of accounts`);
-  return <div className="page"><D title="Accounting" subtitle="Manage your books, accounts, and financial records." actions={<Cmp_w icon="plus" onClick={() => t(`transaction`)}>New journal entry</Cmp_w>} /><div className="accounting-cards"><E><span className="round-icon blue"><C name="book" /></span><div><small>Total assets</small><strong>$176,804.12</strong><em>+8.2% this month</em></div></E><E><span className="round-icon coral"><C name="card" /></span><div><small>Total liabilities</small><strong>$31,282.45</strong><em>$11,705 current</em></div></E><E><span className="round-icon green"><C name="chart" /></span><div><small>Owner’s equity</small><strong>$145,521.67</strong><em>Balanced as of May 24</em></div></E></div><E className="table-card"><div className="wide-tabs">{[`Chart of accounts`, `General ledger`, `Journal entries`, `Trial balance`].map(e => <button className={n === e ? `active` : ``} onClick={() => r(e)} key={e}>{e}</button>)}</div><div className="toolbar"><div className="search-field"><C name="search" /><input placeholder={`Search ${n.toLowerCase()}…`} /></div><Cmp_w variant="secondary" icon="download" onClick={() => e(`${n} exported as CSV`)}>Export</Cmp_w><Cmp_w variant="secondary" icon="filter" onClick={() => e(`Filters ready for ${n.toLowerCase()}`)}>Filter</Cmp_w></div>{n === `Chart of accounts` ? <table><thead><tr><th>Account</th><th>Type</th><th>Detail type</th><th>Balance</th><th>Last activity</th><th /></tr></thead><tbody>{he.map((e, t) => <tr key={e[0]}><td><div className="account-name"><span className={`account-mark ${e[4]}`} /><span><b>{e[1]}</b><small>{e[0]}</small></span></div></td><td>{e[2]}</td><td>{t < 2 ? `Cash and cash equivalents` : e[2]}</td><td><strong>{e[3]}</strong></td><td>{t % 2 ? `May 23, 2025` : `May 24, 2025`}</td><td><C name="more" /></td></tr>)}</tbody></table> : <Cmp__e tab={n} />}<div className="table-footer"><span>{n === `Chart of accounts` ? `7 of 32 accounts` : `Updated moments ago`}</span><Cmp_w variant="secondary" onClick={() => e(`Opened full ${n.toLowerCase()}`)}>View full {n.toLowerCase()}</Cmp_w></div></E></div>;
-}
-function Cmp__e({
-  tab: e
-}) {
-  return <table><thead><tr><th>{e === `Journal entries` ? `Entry` : `Account`}</th><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>{(e === `Journal entries` ? [`JE-00241`, `JE-00240`, `JE-00239`, `JE-00238`] : [`Business Checking`, `Sales Revenue`, `Accounts Receivable`, `Payroll Expense`]).map((e, t) => <tr key={e}><td><strong>{e}</strong></td><td>May {24 - t}, 2025</td><td>{[`Stripe payout settlement`, `Monthly revenue recognition`, `Client invoice payment`, `Payroll processing`][t]}</td><td>{t % 2 == 0 ? `$8,420.00` : `—`}</td><td>{t % 2 ? `$4,750.00` : `—`}</td><td><strong>${[82420, 84240, 18740, 6284][t].toLocaleString()}.00</strong></td></tr>)}</tbody></table>;
-}
 var ve = [[`Revenue`, ``, ``, ``], [`Sales revenue`, `$76,240`, `$68,510`, `+11.3%`], [`Consulting income`, `$8,000`, `$6,750`, `+18.5%`], [`Total revenue`, `$84,240`, `$75,260`, `+11.9%`], [`Cost of goods sold`, ``, ``, ``], [`Contractor costs`, `$8,420`, `$7,840`, `+7.4%`], [`Hosting & infrastructure`, `$4,260`, `$3,980`, `+7.0%`], [`Gross profit`, `$71,560`, `$63,440`, `+12.8%`], [`Operating expenses`, ``, ``, ``], [`Payroll`, `$12,569`, `$11,840`, `+6.2%`], [`Rent & lease`, `$3,700`, `$3,700`, `0.0%`], [`Software & subscriptions`, `$2,985`, `$2,620`, `+13.9%`], [`Marketing & advertising`, `$4,750`, `$5,110`, `−7.0%`], [`Net operating income`, `$51,556`, `$42,380`, `+21.7%`]];
 function Cmp_ye() {
   let {
@@ -573,7 +561,7 @@ function Te({ session, onSession }) {
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`INV-1084 · Acme Studio`, `Invoice · $6,800.00`, `Invoices`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Cmp_pe /> : e === `Accounting` ? <Cmp_ge /> : e === `Reports` ? <Cmp_ye /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Cmp_pe /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Cmp_ye /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,

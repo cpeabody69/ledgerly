@@ -1,8 +1,8 @@
 # Ledgerly
 
-Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites.
+Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client.
 
-Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client is a separate row. Nothing on the dashboard, transactions, accounting, invoices, or reports screen is a ledger.
+Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart and ledger. Dashboard, Transactions, Invoices, and Reports still show the published picture. They do not read these books.
 
 ## Run
 
@@ -23,21 +23,35 @@ Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:8787. `npm start
 | Northstar | olivia@northstarcreative.co | ledgerly-northstar | Owner (shown as Administrator) |
 | Harbor Street Advisors | jordan@harborstreet.example | ledgerly-harbor | Owner |
 
-An owner invites a staff or manager user from Settings. That person can sign in with the email and password entered on the invite. Staff and managers cannot invite.
+An owner invites a staff or manager user from Settings. That person can sign in with the email and password entered on the invite. Staff and managers cannot invite. Any signed-in member of the firm can post a journal entry to the open client.
+
+## Post a sample entry as Olivia
+
+1. Sign in as `olivia@northstarcreative.co` / `ledgerly-northstar`.
+2. The open client is Northstar Creative. If it is not, switch to Northstar Creative.
+3. Open Accounting. The chart is the small-service template and the three cards are `$0.00` until something is posted.
+4. Choose **New journal entry**. This is a journal form, not the transaction composer.
+5. Date `2026-11-03`. Memo `Sample service income`.
+6. First line: `1000 Cash`, debit `250.00`. Second line: `4000 Service revenue`, credit `250.00`.
+7. Choose **Post entry**.
+
+The trial balance then shows Cash `$250.00` in the debit column and Service revenue `$250.00` in the credit column. The cards read assets `$250.00`, liabilities `$0.00`, and equity `$250.00`. Switch to Haven Coffee Roasters and those books stay at zero. Amounts are text such as `250.00`. An unbalanced entry is rejected and does not appear. A posted entry is not edited or deleted in place.
 
 ## What is stored
 
-Firms, users, clients, sessions, and audit events live in SQLite (`data/ledgerly.sqlite`, created on first start). Every row carries a firm. Client rows also carry that firm. The open client is stored on the server session, so a refresh keeps the sign-in and the selected client.
+Firms, users, clients, sessions, and audit events live in SQLite (`data/ledgerly.sqlite`, created on first start). Each client also gets an empty chart, a books policy (accrual basis, fiscal year starting in January), and journal tables. Every journal row carries the firm, the client, the user who posted it, and the time. Money is stored as integer cents. Posting runs in a database transaction and is kept only when the lines balance.
 
-A user in one firm who requests another firm’s client id gets 404. The browser is not the system of record.
+The chart is a synthetic small-service template, marked as a template, not GAAP guidance. Account `1000 Cash` is marked as the cash account so a later cash-basis statement can count an entry only when a line posts to cash. Those statements are not built yet.
+
+A user in one firm who requests another firm’s client id gets 404. The browser is not the system of record. The open client is stored on the server session, so a refresh keeps the sign-in and the selected client.
 
 ## Still the published picture
 
-These screens still look like the published draft and do not write books:
+These screens still look like the published draft and do not read the ledger:
 
-- Dashboard, Transactions, Accounting, Invoices, and Reports, including their dollar figures
+- Dashboard, Transactions, Invoices, and Reports, including their dollar figures
 - Banking and Expenses placeholders
 - The Settings overview cards
 - The Clients banner counts, document-request copy, and review-queue copy
 - The revenue and net-income text on the four original client rows (screen copy only, not stored)
-- Add client, add company, composers, imports, exports, Ledger AI, notifications, and personal profile
+- Add client, add company, the transaction and invoice composers, imports, exports, Ledger AI, notifications, and personal profile

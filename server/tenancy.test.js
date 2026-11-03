@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
+import { CHART } from "./chart.js";
 import { start } from "./app.js";
 
 function cookieJar() {
@@ -161,9 +162,24 @@ test("two firms stay separate, sessions survive refresh, and staff cannot invite
     const db = new DatabaseSync(dbPath);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
     for (const name of ["firms", "users", "clients", "sessions", "audit_events"]) assert.ok(tables.includes(name));
-    for (const name of ["accounts", "journals", "journal_lines", "transactions", "invoices"]) assert.equal(tables.includes(name), false);
+    for (const name of ["transactions", "invoices"]) assert.equal(tables.includes(name), false);
+    for (const name of ["accounts", "journal_entries", "journal_lines", "client_books"]) assert.ok(tables.includes(name));
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_entries").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_lines").get().count, 0);
 
     const clientRows = db.prepare("SELECT * FROM clients").all();
+    const accountRows = db.prepare("SELECT * FROM accounts").all();
+    assert.equal(accountRows.length, clientRows.length * CHART.length);
+    assert.ok(accountRows.every((row) => row.firm_id && row.client_id && row.template === "small-service-business"));
+    const accountText = accountRows.map((row) => `${row.code} ${row.name} ${row.detail_type} ${row.type}`).join("\n");
+    assert.equal(accountText.includes("$"), false);
+    assert.equal(accountText.includes("82,420"), false);
+    assert.equal(accountText.includes("176,804"), false);
+    assert.equal(JSON.stringify(accountRows).includes("$"), false);
+    const bookRows = db.prepare("SELECT * FROM client_books").all();
+    assert.equal(bookRows.length, clientRows.length);
+    assert.ok(bookRows.every((row) => row.firm_id && row.client_id && row.accounting_basis === "accrual" && row.fiscal_year_start_month === 1));
+    assert.ok(bookRows.every((row) => clientRows.some((client) => client.id === row.client_id && client.firm_id === row.firm_id)));
     assert.ok(clientRows.every((row) => row.firm_id));
     assert.equal(JSON.stringify(clientRows).includes("$"), false);
     const userRows = db.prepare("SELECT * FROM users").all();
