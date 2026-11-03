@@ -276,7 +276,8 @@ test("transactions and banking screens do not keep the published bank feed", () 
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   const transactions = readFileSync(new URL("../src/Transactions.jsx", import.meta.url), "utf8");
   const banking = readFileSync(new URL("../src/Banking.jsx", import.meta.url), "utf8");
-  assert.match(shell, /\$6,800\.00/);
+  assert.doesNotMatch(shell, /\$6,800\.00/);
+  assert.doesNotMatch(shell, /\$18,740\.00/);
   assert.match(shell, /Stripe Payments/);
   assert.doesNotMatch(shell, /\$84,240\.00/);
   assert.doesNotMatch(shell, /\$128,430\.62/);

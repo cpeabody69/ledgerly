@@ -362,9 +362,10 @@ test("a staff user can post to the open client and not to another client's books
 test("invoices and the dashboard's other published widgets stay in the shell", () => {
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   const accounting = readFileSync(new URL("../src/Accounting.jsx", import.meta.url), "utf8");
-  assert.match(shell, /\$6,800\.00/);
-  assert.match(shell, /\$18,740\.00/);
+  assert.doesNotMatch(shell, /\$6,800\.00/);
+  assert.doesNotMatch(shell, /\$18,740\.00/);
   assert.match(shell, /Stripe Payments/);
+  assert.match(shell, /OutstandingInvoices/);
   assert.doesNotMatch(shell, /\$84,240\.00/);
   assert.doesNotMatch(shell, /\$128,430\.62/);
   assert.doesNotMatch(shell, /12\.5%/);

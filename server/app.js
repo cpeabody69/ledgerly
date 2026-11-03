@@ -4,6 +4,7 @@ import path from "node:path";
 import { createClient, findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { listFirm } from "./clients.js";
 import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
+import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 import { readStatements } from "./statements.js";
@@ -196,6 +197,46 @@ async function handle(req, res, db, options) {
     const result = req.method === "GET"
       ? listDocuments(db, session, url.searchParams.get("clientId"))
       : storeDocument(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/invoices" && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = req.method === "GET" ? listInvoices(db, session) : createInvoice(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const invoiceAction = pathname.match(/^\/api\/invoices\/([^/]+)\/(send|payments|void)$/);
+  if (invoiceAction && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const id = decodeURIComponent(invoiceAction[1]);
+    const result = invoiceAction[2] === "send"
+      ? sendInvoice(db, session, id)
+      : invoiceAction[2] === "payments"
+        ? recordPayment(db, session, id, await readBody(req))
+        : voidInvoice(db, session, id);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const invoiceMatch = pathname.match(/^\/api\/invoices\/([^/]+)$/);
+  if (invoiceMatch && req.method === "DELETE") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = discardInvoice(db, session, decodeURIComponent(invoiceMatch[1]));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
