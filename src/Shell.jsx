@@ -1,11 +1,13 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
 // Accounting is the client's books. Transactions and Banking are this client's statement activity.
-// Dashboard metrics and the revenue chart use the ledger. Invoices and Reports' other pages stay published where they are not statements.
+// Dashboard metrics and the revenue chart use the ledger. The Clients screen is this firm's books and review queue.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { PERIODS } from "../shared/activity.js";
 import { formatMoney } from "../shared/money.js";
 import { Accounting } from "./Accounting.jsx";
 import { Banking } from "./Banking.jsx";
+import { Clients } from "./Clients.jsx";
 import { Reports } from "./Reports.jsx";
 import { Transactions } from "./Transactions.jsx";
 
@@ -308,52 +310,6 @@ function Cmp_xe() {
     });
   return <div className="page"><D title="Invoices" subtitle="Create invoices, track payments, and manage your customers." actions={<Cmp_w icon="plus" onClick={() => e(`invoice`)}>Create invoice</Cmp_w>} /><div className="invoice-metrics"><E><span>Outstanding</span><strong>$18,740.00</strong><small>5 open invoices</small><i className="metric-line blue-line" /></E><E><span>Overdue</span><strong>$4,250.00</strong><small>1 invoice · 4 days</small><i className="metric-line red-line" /></E><E><span>Paid this month</span><strong>$24,680.00</strong><small className="green-text">↑ 12.4% from April</small><i className="metric-line green-line" /></E><E><span>Average time to pay</span><strong>12 days</strong><small>2 days faster than April</small><i className="metric-line purple-line" /></E></div><E className="table-card"><div className="toolbar"><div className="search-field"><C name="search" /><input value={n} onChange={e => r(e.target.value)} placeholder="Search invoices or customers…" /></div><Cmp_ae icon="filter" value={o} options={[`All statuses`, `Paid`, `Sent`, `Due soon`, `Overdue`]} onChange={s} /><Cmp_oe value={c} onChange={l} /></div><div className="tab-bar">{[[`All invoices`, `42`], [`Draft`, `3`], [`Outstanding`, `5`], [`Paid`, `34`]].map(([e, t]) => <button className={i === e ? `active` : ``} onClick={() => a(e)} key={e}>{e} <span>{t}</span></button>)}</div>{u.length ? <table><thead><tr><th>Invoice</th><th>Customer</th><th>Issue date</th><th>Due date</th><th>Amount</th><th>Status</th><th /></tr></thead><tbody>{u.map((e, n) => <tr key={e[0]}><td><strong className="link">{e[0]}</strong></td><td><div className="customer"><T initials={e[2]} color={[`teal`, `purple`, `blue`, `amber`, `coral`][n]} small={!0} /><strong>{e[1]}</strong></div></td><td>{e[3]}</td><td>{e[4]}</td><td><strong>{e[5]}</strong></td><td><Cmp_ne tone={e[7]}>{e[6]}</Cmp_ne></td><td><button className="row-action" aria-label={`Open ${e[0]}`} onClick={() => t(`${e[0]} invoice preview opened`)}><C name="more" /></button></td></tr>)}</tbody></table> : <Cmp_se title="No invoices found" detail="Try changing the customer search, status, or date range." />}<div className="table-footer"><span>Showing {u.length} of 42 invoices · {c}</span><div><Cmp_w variant="secondary" disabled={!0} onClick={() => t(`You are on the first invoice page`)}>Previous</Cmp_w><Cmp_w variant="secondary" onClick={() => t(`Loaded the next invoice page`)}>Next</Cmp_w></div></div></E></div>;
 }
-// Published clients-screen wording. These amounts are not ledger balances and are not stored.
-var preservedClientChrome = {
-  "Northstar Creative": {
-    revenue: `$84.2k`,
-    income: `$51.6k`,
-    updated: `May 24`,
-    status: `Healthy`,
-    tone: `green`
-  },
-  "Haven Coffee Roasters": {
-    revenue: `$128.6k`,
-    income: `$22.4k`,
-    updated: `May 23`,
-    status: `Review`,
-    tone: `amber`
-  },
-  "Brightline Labs": {
-    revenue: `$64.8k`,
-    income: `$18.2k`,
-    updated: `May 24`,
-    status: `Healthy`,
-    tone: `green`
-  },
-  "Mason & Finch": {
-    revenue: `$42.1k`,
-    income: `$9.7k`,
-    updated: `May 20`,
-    status: `Needs attention`,
-    tone: `red`
-  }
-};
-function Se() {
-  let {
-      notify: e,
-      session,
-      selectClient
-    } = O(),
-    names = new Set(session.clients.map(client => client.name)),
-    colors = [`blue`, `amber`, `teal`, `purple`, `coral`, `navy`];
-  return <div className="page"><D eyebrow="CPA PORTAL" title="Client workspace" subtitle="Monitor every client’s books, requests, and review status in one place." actions={<><Cmp_w variant="secondary" icon="upload" onClick={() => e(`New document request opened`)}>Request documents</Cmp_w><Cmp_w icon="plus" onClick={() => e(`Client onboarding opened`)}>Add client</Cmp_w></>} /><div className="portal-banner"><div><span className="round-icon inverse"><C name="building" /></span><div><h2>Your firm at a glance</h2><p>Four client books are ready for review. Two need your attention this week.</p></div></div><div className="portal-stats"><span><b>18</b>Active clients</span><span><b>4</b>Ready to review</span><span><b>7</b>Open requests</span></div></div><div className="client-layout"><E className="client-table"><Cmp_re title="Client accounts" subtitle="Financial snapshots for May 2025" action={<div className="search-mini"><C name="search" /><input placeholder="Search clients" /></div>} /><table><thead><tr><th>Client</th><th>Revenue</th><th>Net income</th><th>Books updated</th><th>Status</th><th /></tr></thead><tbody>{session.clients.map((client, t) => {
-            let chrome = preservedClientChrome[client.name];
-            return <tr key={client.id} onClick={() => selectClient(client.id, {
-              navigateTo: `Dashboard`
-            })}><td><div className="customer"><T initials={client.initials} color={colors[t % colors.length]} /><span><b>{client.name}</b><small>{client.industry}</small></span></div></td><td><strong>{chrome ? chrome.revenue : `—`}</strong></td><td>{chrome ? chrome.income : `—`}</td><td>{chrome ? chrome.updated : `—`}</td><td>{chrome ? <Cmp_ne tone={chrome.tone}>{chrome.status}</Cmp_ne> : `—`}</td><td><C name="chevron" size={15} /></td></tr>;
-          })}</tbody></table></E><div className="portal-side"><E><Cmp_re title="Document requests" action={<button className="text-button">View all</button>} />{names.has(`Haven Coffee Roasters`) ? <div className="request-row"><span className="file-icon"><C name="file" /></span><span><b>May bank statements</b><small>Haven Coffee · Due tomorrow</small></span><Cmp_ne tone="amber">Pending</Cmp_ne></div> : null}{names.has(`Mason & Finch`) ? <div className="request-row"><span className="file-icon"><C name="file" /></span><span><b>Contractor W-9 forms</b><small>Mason & Finch · Due May 30</small></span><Cmp_ne tone="blue">2 of 4</Cmp_ne></div> : null}{names.has(`Brightline Labs`) ? <div className="request-row"><span className="file-icon green"><C name="check" /></span><span><b>Credit card receipts</b><small>Brightline Labs · Received</small></span><Cmp_ne tone="green">Complete</Cmp_ne></div> : null}<Cmp_w variant="secondary" icon="plus" onClick={() => e(`New document request opened`)}>New document request</Cmp_w></E><E><Cmp_re title="Review queue" action={<Cmp_ne tone="blue">4 ready</Cmp_ne>} />{names.has(`Northstar Creative`) ? <div className="review-row"><T initials="NC" color="blue" small={!0} /><span><b>Northstar Creative</b><small>May monthly close</small></span><Cmp_w variant="secondary" onClick={() => e(`Northstar monthly close opened`)}>Review</Cmp_w></div> : null}{names.has(`Brightline Labs`) ? <div className="review-row"><T initials="BL" color="teal" small={!0} /><span><b>Brightline Labs</b><small>8 items flagged</small></span><Cmp_w variant="secondary" onClick={() => e(`Brightline review queue opened`)}>Review</Cmp_w></div> : null}</E></div></div></div>;
-}
 
 function InviteModal({
   onClose,
@@ -453,11 +409,15 @@ function Te({ session, onSession }) {
     [c, l] = (0, b.useState)(!1),
     [u, d] = (0, b.useState)(!1),
     [f, p] = (0, b.useState)(!1),
+    [transactionTab, setTransactionTab] = (0, b.useState)(`all`),
+    [transactionPeriod, setTransactionPeriod] = (0, b.useState)(PERIODS[0]),
     m = e => {
       a(e), window.setTimeout(() => a(``), 3200);
     },
-    h = e => {
-      t(e), window.scrollTo({
+    h = (screen, extras = {}) => {
+      setTransactionTab(extras.transactionTab || `all`);
+      setTransactionPeriod(extras.transactionPeriod || PERIODS[0]);
+      t(screen), window.scrollTo({
         top: 0,
         behavior: `smooth`
       });
@@ -483,11 +443,14 @@ function Te({ session, onSession }) {
       if (!response.ok) return !1;
       onSession(await response.json());
       p(!1);
-      if (options.navigateTo) h(options.navigateTo);
+      if (options.navigateTo) h(options.navigateTo, {
+        transactionTab: options.transactionTab,
+        transactionPeriod: options.transactionPeriod
+      });
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`INV-1084 · Acme Studio`, `Invoice · $6,800.00`, `Invoices`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={session.client?.id} clientId={session.client?.id} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Clients onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,

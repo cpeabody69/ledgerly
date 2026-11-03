@@ -16,15 +16,14 @@ function todayIso() {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-export function readStatements(db, session, { clientId, period, basis } = {}) {
-  if (clientId && clientId !== session.selected_client_id) return fail(404, "Client not found.");
+export function loadStatement(db, firmId, clientId, { period, basis } = {}) {
   const client = db.prepare(
     "SELECT id, name, legal_name FROM clients WHERE id = ? AND firm_id = ?",
-  ).get(session.selected_client_id, session.firm_id);
-  if (!client) return fail(404, "Client not found.");
+  ).get(clientId, firmId);
+  if (!client) return null;
   const books = db.prepare(
     "SELECT fiscal_year_start_month FROM client_books WHERE client_id = ? AND firm_id = ?",
-  ).get(client.id, session.firm_id);
+  ).get(client.id, firmId);
   const selectedBasis = basis === "cash" ? "cash" : "accrual";
   const today = todayIso();
   const resolved = resolvePeriod(period || "May 1 – May 31", today);
@@ -32,7 +31,7 @@ export function readStatements(db, session, { clientId, period, basis } = {}) {
   const accounts = db.prepare(
     `SELECT id, code, name, type, cash FROM accounts
      WHERE firm_id = ? AND client_id = ? ORDER BY code`,
-  ).all(session.firm_id, client.id).map((account) => ({
+  ).all(firmId, client.id).map((account) => ({
     id: account.id,
     code: account.code,
     name: account.name,
@@ -48,7 +47,7 @@ export function readStatements(db, session, { clientId, period, basis } = {}) {
        AND journal_entries.client_id = journal_lines.client_id
      WHERE journal_lines.firm_id = ? AND journal_lines.client_id = ?
      ORDER BY journal_entries.entry_date, journal_entries.reference, journal_lines.position`,
-  ).all(session.firm_id, client.id);
+  ).all(firmId, client.id);
   const entries = [];
   const byId = new Map();
   for (const row of lineRows) {
@@ -74,10 +73,21 @@ export function readStatements(db, session, { clientId, period, basis } = {}) {
     chartEnd: today,
   });
   return {
+    client: { id: client.id, name: client.name, legalName: client.legal_name },
+    period: resolved,
+    statement,
+  };
+}
+
+export function readStatements(db, session, { clientId, period, basis } = {}) {
+  if (clientId && clientId !== session.selected_client_id) return fail(404, "Client not found.");
+  const loaded = loadStatement(db, session.firm_id, session.selected_client_id, { period, basis });
+  if (!loaded) return fail(404, "Client not found.");
+  return {
     status: 200,
     payload: {
-      client: { id: client.id, name: client.name, legalName: client.legal_name },
-      ...statement,
+      client: loaded.client,
+      ...loaded.statement,
     },
   };
 }

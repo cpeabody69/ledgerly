@@ -47,13 +47,13 @@ async function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-export function Transactions({ clientId }) {
+export function Transactions({ clientId, initialTab = "all", initialPeriod = PERIODS[0] }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
-  const [period, setPeriod] = useState(PERIODS[0]);
-  const [tab, setTab] = useState("all");
+  const [period, setPeriod] = useState(initialPeriod);
+  const [tab, setTab] = useState(initialTab);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState([]);
   const [bulkAccountId, setBulkAccountId] = useState("");
