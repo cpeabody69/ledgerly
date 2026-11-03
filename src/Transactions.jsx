@@ -302,6 +302,12 @@ function TransactionDrawer({ transaction, accounts, onClose, onCategorize, onExc
             </dl>
           </div>
           <div className="drawer-section">
+            <h3>Attachment</h3>
+            {transaction.attachments?.length ? transaction.attachments.map((file) => (
+              <p key={file.id}><a href={`/api/documents/${file.id}`} target="_blank" rel="noreferrer">{file.name}</a></p>
+            )) : <p>No file stored on this line.</p>}
+          </div>
+          <div className="drawer-section">
             <h3>Proposed coding</h3>
             <label className="field">
               <span>Category</span>

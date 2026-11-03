@@ -34,6 +34,18 @@ function workLabel(client) {
   return parts.join(" · ");
 }
 
+async function payloadFor(file) {
+  if (!file) return null;
+  if (file.size > 48 * 1024) throw new Error("Choose a synthetic file of 48 KB or less.");
+  const mediaType = file.type || (file.name.toLowerCase().endsWith(".txt") ? "text/plain" : "");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
+  });
+  return { name: file.name, mediaType, contentBase64: btoa(binary) };
+}
+
 function glance(ready) {
   if (!ready) return "No client books are waiting for review.";
   if (ready === 1) return "1 client book is ready for review.";
@@ -92,18 +104,107 @@ function AddClient({ onClose, onCreated }) {
   );
 }
 
-export function Clients({ onOpenClient, onReview, onSession }) {
+function RequestDocuments({ clients, selectedClientId, onClose, onCreated }) {
+  const [clientId, setClientId] = useState(selectedClientId || clients[0]?.id || "");
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const ready = clientId && title.trim() && !pending;
+
+  async function save(event) {
+    event.preventDefault();
+    if (!ready) return;
+    setPending(true);
+    setError("");
+    const response = await fetch("/api/document-requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clientId, title }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setPending(false);
+    if (!response.ok) {
+      setError(body.error || "The request was not stored.");
+      return;
+    }
+    onCreated(body);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="modal" role="dialog" aria-modal="true" aria-labelledby="request-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={save}>
+        <div className="modal-header">
+          <div>
+            <h2 id="request-title">Request documents</h2>
+            <p>This stores an open request on the client. Attaching a file completes it.</p>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="form-grid">
+          <label className="field full">
+            <span>Client</span>
+            <select value={clientId} onChange={(event) => setClientId(event.target.value)}>
+              {clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}
+            </select>
+          </label>
+          <label className="field full"><span>Title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        </div>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <div className="modal-footer">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!ready}>{pending ? "Saving…" : "Create request"}</Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function Clients({ selectedClientId, onOpenClient, onReview, onSession }) {
   const [firm, setFirm] = useState(null);
+  const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [requesting, setRequesting] = useState(false);
 
   async function load() {
-    const response = await fetch("/api/clients");
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || "Could not load clients.");
+    const [clientResponse, fileResponse] = await Promise.all([fetch("/api/clients"), fetch("/api/documents")]);
+    const body = await clientResponse.json().catch(() => ({}));
+    const fileBody = await fileResponse.json().catch(() => ({}));
+    if (!clientResponse.ok) throw new Error(body.error || "Could not load clients.");
+    if (!fileResponse.ok) throw new Error(fileBody.error || "Could not load files.");
     setFirm(body);
+    setFiles(fileBody.files || []);
     return body;
+  }
+
+  async function attach(request, file) {
+    setError("");
+    try {
+      const payload = await payloadFor(file);
+      if (!payload) return;
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, clientId: request.clientId, requestId: request.id }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "The file was not stored.");
+      await load();
+    } catch (attachError) {
+      setError(attachError.message);
+    }
+  }
+
+  async function removeFile(file) {
+    setError("");
+    const response = await fetch(`/api/documents/${file.id}`, { method: "DELETE" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setError(body.error || "The file was not removed.");
+      return;
+    }
+    await load();
   }
 
   useEffect(() => {
@@ -139,7 +240,7 @@ export function Clients({ onOpenClient, onReview, onSession }) {
           <p>Monitor every client’s books, requests, and review status in one place.</p>
         </div>
         <div className="header-actions">
-          <Button variant="secondary" icon="upload" disabled>Request documents</Button>
+          <Button variant="secondary" icon="upload" onClick={() => setRequesting(true)}>Request documents</Button>
           <Button icon="plus" onClick={() => setAdding(true)}>Add client</Button>
         </div>
       </div>
@@ -210,9 +311,27 @@ export function Clients({ onOpenClient, onReview, onSession }) {
                 <span className="file-icon"><Icon name="file" /></span>
                 <span><b>{request.title}</b><small>{request.clientName}</small></span>
                 <span className="badge amber">Open</span>
+                <label className="text-button">
+                  Attach file
+                  <input aria-label={`Attach file to ${request.title}`} type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,text/plain,application/pdf,image/png,image/jpeg" hidden onChange={(event) => attach(request, event.target.files?.[0])} />
+                </label>
               </div>
             )) : <p className="books-note">No open requests.</p>}
-            <Button variant="secondary" icon="plus" disabled>New document request</Button>
+            <Button variant="secondary" icon="plus" onClick={() => setRequesting(true)}>New document request</Button>
+          </section>
+          <section className="card">
+            <div className="card-header"><div><h2>Client files</h2></div></div>
+            {files.length ? files.map((file) => (
+              <div className="request-row" key={file.id}>
+                <span className="file-icon"><Icon name="file" /></span>
+                <span>
+                  <b>{file.name}</b>
+                  <small>{[file.clientName, file.requestTitle, file.transactionDescription].filter(Boolean).join(" · ")}</small>
+                </span>
+                <a className="text-button" href={`/api/documents/${file.id}`} target="_blank" rel="noreferrer">View</a>
+                <button className="text-button" type="button" onClick={() => removeFile(file)}>Remove</button>
+              </div>
+            )) : <p className="books-note">No files stored.</p>}
           </section>
           <section className="card">
             <div className="card-header">
@@ -235,6 +354,17 @@ export function Clients({ onOpenClient, onReview, onSession }) {
           onCreated={(body) => {
             setAdding(false);
             if (body.session) onSession(body.session);
+            load().catch((loadError) => setError(loadError.message));
+          }}
+        />
+      ) : null}
+      {requesting ? (
+        <RequestDocuments
+          clients={clients}
+          selectedClientId={selectedClientId}
+          onClose={() => setRequesting(false)}
+          onCreated={() => {
+            setRequesting(false);
             load().catch((loadError) => setError(loadError.message));
           }}
         />

@@ -1,6 +1,6 @@
 # Ledgerly
 
-Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers. Phase 5 makes the Clients screen the firm’s client list and review queue.
+Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers. Phase 5 makes the Clients screen the firm’s client list and review queue. Phase 6 stores document requests and synthetic files for that firm.
 
 Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart, ledger, and statement activity. Invoices stay the published picture. They do not read these books.
 
@@ -60,7 +60,11 @@ A user in one firm who requests another firm’s client id gets 404. The browser
 
 ## Clients
 
-The Clients screen and the company switcher list the same clients for the signed-in firm. Active clients, ready to review, and open requests are counts of those records. Add client creates a client and an empty chart. Search filters the table. Revenue and net income on a row are that client’s May accrual statement; a figure that is not computed is left blank. Books updated is the latest journal or statement date. The review queue lists clients with uncategorized statement lines or accounts that still have uncleared lines. Review opens that work. Categorizing a line lowers the uncategorized count. Harbor Street Advisors does not see Northstar’s clients.
+The Clients screen and the company switcher list the same clients for the signed-in firm. Active clients, ready to review, and open requests are counts of those records. Add client creates a client and an empty chart. Search filters the table. Revenue and net income on a row are that client’s May accrual statement; a figure that is not computed is left blank. Books updated is the latest journal or statement date. The review queue lists clients with uncategorized statement lines or accounts that still have uncleared lines. Review opens that work. Categorizing a line lowers the uncategorized count. Open requests count the firm’s stored document requests that are still open. Harbor Street Advisors does not see Northstar’s clients.
+
+## Documents
+
+Request documents creates an open request on a client in the signed-in firm. The client file list and the receipt modal store a synthetic file and attach it to that request or to a transaction. View downloads the stored bytes. Removing a file writes an audit event, and removing the last file on a request opens it again. A file belongs to one firm. Another firm’s user gets no list entry and no bytes. There is no sharing link.
 
 ## Still the published picture
 
@@ -71,5 +75,4 @@ These screens still look like the published draft and do not read the ledger:
 - The Expenses placeholder
 - The Settings overview cards
 - Add company, the invoice composer, exports other than a statement, Ledger AI, notifications, and personal profile
-- Document requests, which stay empty until a request is stored
 - Budget vs. actuals, accounts receivable, and expense summary, which stay disabled

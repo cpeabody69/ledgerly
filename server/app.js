@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { createClient, findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { listFirm } from "./clients.js";
+import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 import { readStatements } from "./statements.js";
@@ -16,6 +17,18 @@ function readCookie(req, name) {
     if (key === name) return decodeURIComponent(rest.join("="));
   }
   return "";
+}
+
+function sendBytes(res, file) {
+  const name = file.name.replace(/["\r\n]/g, "");
+  res.writeHead(200, {
+    "content-type": file.mediaType,
+    "content-length": file.bytes.length,
+    "content-disposition": `inline; filename="${name}"`,
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  res.end(file.bytes);
 }
 
 function send(res, status, body, extraHeaders = {}) {
@@ -161,6 +174,49 @@ async function handle(req, res, db, options) {
     const result = createClient(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/document-requests") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = createDocumentRequest(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/documents" && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = req.method === "GET"
+      ? listDocuments(db, session, url.searchParams.get("clientId"))
+      : storeDocument(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const documentMatch = pathname.match(/^\/api\/documents\/([^/]+)$/);
+  if (documentMatch && (req.method === "GET" || req.method === "DELETE")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const id = decodeURIComponent(documentMatch[1]);
+    if (req.method === "DELETE") {
+      const result = removeDocument(db, session, id);
+      if (result.error) send(res, result.status, { error: result.error });
+      else send(res, result.status, result.payload);
+      return;
+    }
+    const file = readDocument(db, session, id);
+    if (!file) send(res, 404, { error: "File not found." });
+    else sendBytes(res, file);
     return;
   }
 

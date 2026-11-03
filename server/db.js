@@ -6,6 +6,7 @@ import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
 import { ensureBanking } from "./banking.js";
 import { ensureFirmCrm } from "./clients.js";
+import { ensureDocuments } from "./documents.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -87,6 +88,7 @@ export function openDatabase(dbPath) {
   ensureCharts(db);
   ensureBanking(db);
   ensureFirmCrm(db);
+  ensureDocuments(db);
   return db;
 }
 
