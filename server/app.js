@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
+import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -199,6 +200,89 @@ async function handle(req, res, db, options) {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/api/transactions") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, listTransactions(db, session, { clientId: url.searchParams.get("clientId"), month: url.searchParams.get("month") }));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/transactions/import") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, importTransactions(db, session, await readBody(req)));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/transactions/bulk") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, bulkTransactions(db, session, await readBody(req)));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/transactions") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, createTransaction(db, session, await readBody(req)));
+    return;
+  }
+
+  const categorizeMatch = pathname.match(/^\/api\/transactions\/([^/]+)\/categorize$/);
+  if (req.method === "POST" && categorizeMatch) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, categorizeTransaction(db, session, decodeURIComponent(categorizeMatch[1]), await readBody(req)));
+    return;
+  }
+
+  const excludeMatch = pathname.match(/^\/api\/transactions\/([^/]+)\/exclude$/);
+  if (req.method === "POST" && excludeMatch) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, excludeTransaction(db, session, decodeURIComponent(excludeMatch[1]), await readBody(req)));
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/banking") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, listBanking(db, session, url.searchParams.get("clientId")));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/bank-accounts") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, createBankAccount(db, session, await readBody(req)));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/reconciliations") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, completeReconciliation(db, session, await readBody(req)));
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/api/members") {
     if (!session) {
       send(res, 401, { error: "Sign in required." });
@@ -215,6 +299,11 @@ async function handle(req, res, db, options) {
   }
 
   send(res, 404, { error: "Not found." });
+}
+
+function sendResult(res, result) {
+  if (result.error) send(res, result.status, { error: result.error, ...(result.payload || {}) });
+  else send(res, result.status, result.payload);
 }
 
 export function start(dbPath, port = 0, options = {}) {

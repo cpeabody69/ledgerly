@@ -1985,6 +1985,30 @@ inherits:false}
 .sign-in .lede{color:var(--muted);margin:0 0 18px;font-size:12px}
 .sign-in .field{margin-bottom:12px}
 .sign-in .button{width:100%;height:40px}
+.period-select{height:36px;border:1px solid #dbe2ea;border-radius:7px;padding:0 10px;background:#fff;color:#374a60;font-size:11px}
+.books-note{color:#285d49;padding:12px 17px 0;margin:0;font-size:12px}
+.banking-layout{grid-template-columns:320px 1fr;align-items:start;gap:16px;display:grid}
+.banking-add{padding:0 18px 12px;display:grid;gap:10px}
+.account-list{display:grid}
+.account-list button{text-align:left;background:#fff;border:0;border-top:1px solid var(--border);padding:12px 18px}
+.account-list button.selected{background:#f3f7fd}
+.account-list b,.account-list small{display:block}
+.account-list small{color:#8492a3;margin-top:3px;font-size:8px}
+.banking-empty{color:#8492a3;padding:8px 18px 16px;font-size:12px}
+.reconcile{border-top:1px solid var(--border);padding:8px 0 18px}
+.reconcile h3,.reconcile-history h3{margin:12px 18px;font-size:14px}
+.clear-list{list-style:none;margin:0;padding:0 18px}
+.clear-list label{align-items:center;gap:8px;display:flex;padding:6px 0;font-size:12px}
+.clear-list b{margin-left:auto}
+.reconcile-math{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 18px 14px}
+.reconcile-math div{background:#f8fafc;border-radius:8px;padding:8px 10px}
+.reconcile-math dt{color:#8492a3;font-size:8px}
+.reconcile-math dd{margin:4px 0 0;font-weight:700}
+.reconcile-math .danger{color:var(--red)}
+.reconcile .button{margin-left:18px}
+.reconcile-history ul{margin:0 18px 18px;padding:0;list-style:none;font-size:12px}
+.reconcile-history li{padding:6px 0;border-top:1px solid var(--border)}
+.bulk-bar select{height:28px;border:1px solid #c5d8f1;border-radius:5px;background:#fff;font-size:11px}
 .modal.wide{width:min(760px,100%);max-height:calc(100vh - 60px);overflow:auto}
 .journal-lines{width:calc(100% - 42px);margin:0 21px 4px}
 .journal-lines td{height:auto;padding-top:6px;padding-bottom:6px}
