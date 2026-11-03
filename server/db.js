@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
 import { ensureBanking } from "./banking.js";
+import { ensureFirmCrm } from "./clients.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -85,6 +86,7 @@ export function openDatabase(dbPath) {
   seedIfEmpty(db);
   ensureCharts(db);
   ensureBanking(db);
+  ensureFirmCrm(db);
   return db;
 }
 
@@ -214,6 +216,35 @@ export function selectClient(db, session, clientId) {
 export function findClient(db, session, clientId) {
   const client = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
   return client ? clientJson(client) : null;
+}
+
+function initialsFor(name) {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (!words.length) return "CL";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+export function createClient(db, session, input) {
+  const body = input || {};
+  const name = String(body.name || "").trim();
+  if (!name || name.length > 80) return { status: 400, error: "Enter a client name." };
+  const legalName = String(body.legalName || name).trim() || name;
+  if (legalName.length > 120) return { status: 400, error: "That legal name is too long." };
+  const industry = String(body.industry || "").trim();
+  if (industry.length > 80) return { status: 400, error: "That industry is too long." };
+  const duplicate = db.prepare("SELECT id FROM clients WHERE firm_id = ? AND lower(name) = lower(?)").get(session.firm_id, name);
+  if (duplicate) return { status: 409, error: "That client is already in this firm." };
+  const position = Number(db.prepare("SELECT COALESCE(MAX(position), -1) AS max FROM clients WHERE firm_id = ?").get(session.firm_id).max);
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    "INSERT INTO clients (id, firm_id, name, legal_name, initials, industry, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, session.firm_id, name, legalName, initialsFor(name), industry, position + 1, now);
+  audit(db, session, "client.created", { clientId: id, entityType: "client", entityId: id });
+  ensureCharts(db);
+  const client = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(id, session.firm_id);
+  return { status: 201, payload: { client: clientJson(client), session: sessionPayload(db, session) } };
 }
 
 export function inviteMember(db, session, input) {

@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
+import { createClient, findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
+import { listFirm } from "./clients.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 import { readStatements } from "./statements.js";
@@ -147,7 +148,19 @@ async function handle(req, res, db, options) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
-    send(res, 200, { clients: sessionPayload(db, session).clients });
+    const result = listFirm(db, session);
+    send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/clients") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = createClient(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 
