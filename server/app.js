@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
+import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -160,6 +161,41 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, 200, { client });
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/ledger") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readLedger(db, session, url.searchParams.get("clientId"));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/journal-entries") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const body = await readBody(req);
+    const result = postJournalEntry(db, session, body);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const entryMatch = pathname.match(/^\/api\/journal-entries\/([^/]+)$/);
+  if (req.method === "GET" && entryMatch) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = getJournalEntry(db, session, decodeURIComponent(entryMatch[1]));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, { entry: result.entry });
     return;
   }
 
