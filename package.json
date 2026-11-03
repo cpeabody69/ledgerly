@@ -1,0 +1,22 @@
+{
+  "name": "ledgerly",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node server/dev.js",
+    "start": "NODE_ENV=production node --experimental-sqlite server/index.js",
+    "build": "vite build",
+    "test": "node --experimental-sqlite --test server/tenancy.test.js"
+  },
+  "dependencies": {
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.0",
+    "vite": "^7.1.12"
+  }
+}
