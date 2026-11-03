@@ -4,6 +4,7 @@ import path from "node:path";
 import { findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
+import { readStatements } from "./statements.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -162,6 +163,21 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, 200, { client });
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/statements") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readStatements(db, session, {
+      clientId: url.searchParams.get("clientId"),
+      period: url.searchParams.get("period"),
+      basis: url.searchParams.get("basis"),
+    });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 

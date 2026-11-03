@@ -1,13 +1,15 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
 // Accounting is the client's books. Transactions and Banking are this client's statement activity.
-// Dashboard, Invoices, and Reports stay the published picture.
-import { createContext, useContext, useMemo, useState } from "react";
+// Dashboard metrics and the revenue chart use the ledger. Invoices and Reports' other pages stay published where they are not statements.
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { formatMoney } from "../shared/money.js";
 import { Accounting } from "./Accounting.jsx";
 import { Banking } from "./Banking.jsx";
+import { Reports } from "./Reports.jsx";
 import { Transactions } from "./Transactions.jsx";
 
-const b = { createContext, useContext, useMemo, useState };
+const b = { createContext, useContext, useEffect, useMemo, useState };
 
 var ee = {
   grid: <><rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" /><rect x="3" y="14" width="7" height="7" rx="2" /><rect x="14" y="14" width="7" height="7" rx="2" /></>,
@@ -228,69 +230,52 @@ function Cmp_le({
   icon: i,
   accent: a
 }) {
-  return <E className="metric-card"><div className={`metric-icon ${a}`}><C name={i} /></div><div className="metric-label">{e}<C name="more" size={16} /></div><div className="metric-value">{t}</div><div className={`metric-change ${r ? `positive` : `negative`}`}><span><C name={r ? `arrowUp` : `arrowDown`} size={13} />{n}</span><em>vs last month</em></div></E>;
+  return <E className="metric-card"><div className={`metric-icon ${a}`}><C name={i} /></div><div className="metric-label">{e}<C name="more" size={16} /></div><div className="metric-value">{t}</div>{n ? <div className={`metric-change ${r ? `positive` : `negative`}`}><span><C name={r ? `arrowUp` : `arrowDown`} size={13} />{n}</span><em>vs prior period</em></div> : null}</E>;
 }
-function Cmp_ue() {
-  return <div className="revenue-chart"><div className="chart-y"><span>$60k</span><span>$40k</span><span>$20k</span><span>$0</span></div><svg viewBox="0 0 700 240" preserveAspectRatio="none" role="img" aria-label="Revenue versus expenses from January to June"><defs><linearGradient id="areaBlue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#3976D2" stopOpacity=".22" /><stop offset="1" stopColor="#3976D2" stopOpacity="0" /></linearGradient></defs><g className="grid-lines"><path d="M0 20H700M0 87H700M0 154H700M0 220H700" /></g><path className="area" d="M0 180 C45 170 75 145 115 150 S190 115 235 125 S305 93 350 103 S430 65 470 78 S545 55 585 64 S655 33 700 44 V220 H0Z" /><path className="income-line" d="M0 180 C45 170 75 145 115 150 S190 115 235 125 S305 93 350 103 S430 65 470 78 S545 55 585 64 S655 33 700 44" /><path className="expense-line" d="M0 196 C50 188 72 177 115 182 S190 166 235 171 S310 148 350 159 S425 139 470 146 S550 120 585 130 S650 112 700 121" /><g className="dots"><circle cx="700" cy="44" r="5" /><circle className="expense-dot" cx="700" cy="121" r="5" /></g></svg><div className="chart-x"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div></div>;
+function Cmp_ue({ months = [] }) {
+  const peak = Math.max(0, ...months.map((month) => Math.max(month.revenueCents, month.expenseCents)));
+  const max = Math.max(peak, 1);
+  const x = (index) => months.length <= 1 ? 0 : index * 700 / (months.length - 1);
+  const y = (cents) => 220 - cents / max * 200;
+  const line = (key) => months.map((month, index) => `${index === 0 ? "M" : "L"}${x(index).toFixed(1)} ${y(month[key]).toFixed(1)}`).join(" ");
+  const ticks = peak === 0 ? [0] : [peak, Math.round(peak * 2 / 3), Math.round(peak / 3), 0];
+  return <div className="revenue-chart"><div className="chart-y">{ticks.map((tick, index) => <span style={{ top: `${y(tick) / 240 * 100}%` }} key={`${index}-${tick}`}>{formatMoney(tick)}</span>)}</div><svg viewBox="0 0 700 240" preserveAspectRatio="none" role="img" aria-label="Revenue versus expenses"><g className="grid-lines"><path d="M0 20H700M0 87H700M0 154H700M0 220H700" /></g>{months.length ? <><path className="income-line" d={line("revenueCents")} /><path className="expense-line" d={line("expenseCents")} /></> : null}</svg><div className="chart-x">{months.map((month) => <span key={`${month.year}-${month.month}`}>{month.label}</span>)}</div></div>;
 }
 function Cmp_de() {
   let {
       navigate: e,
       openComposer: t,
-      notify: n,
       session
     } = O(),
-    [r, i] = (0, b.useState)(`May 1 – May 31`),
-    [a, o] = (0, b.useState)(`Accrual basis`),
-    s = {
-      "May 1 – May 31": {
-        revenue: `$84,240.00`,
-        expenses: `$32,684.20`,
-        income: `$51,555.80`,
-        cash: `$128,430.62`,
-        label: `May 2025`
-      },
-      "Apr 1 – Apr 30": {
-        revenue: `$75,260.00`,
-        expenses: `$32,880.00`,
-        income: `$42,380.00`,
-        cash: `$113,610.10`,
-        label: `April 2025`
-      },
-      "Q2 2025": {
-        revenue: `$159,500.00`,
-        expenses: `$65,564.20`,
-        income: `$93,935.80`,
-        cash: `$128,430.62`,
-        label: `Q2 2025`
-      },
-      "Year to date": {
-        revenue: `$386,780.00`,
-        expenses: `$164,920.44`,
-        income: `$221,859.56`,
-        cash: `$128,430.62`,
-        label: `Year to date`
-      },
-      "Custom range": {
-        revenue: `$84,240.00`,
-        expenses: `$32,684.20`,
-        income: `$51,555.80`,
-        cash: `$128,430.62`,
-        label: `Custom period`
-      }
-    }[r] || {
-      revenue: `$84,240.00`,
-      expenses: `$32,684.20`,
-      income: `$51,555.80`,
-      cash: `$128,430.62`,
-      label: `May 2025`
+    [period, setPeriod] = (0, b.useState)(`May 1 – May 31`),
+    [basisLabel, setBasisLabel] = (0, b.useState)(`Accrual basis`),
+    [figures, setFigures] = (0, b.useState)(null),
+    basis = basisLabel === `Cash basis` ? `cash` : `accrual`;
+  (0, b.useEffect)(() => {
+    let cancelled = false;
+    setFigures(null);
+    let params = new URLSearchParams({ period, basis });
+    fetch(`/api/statements?${params}`).then(async (response) => {
+      let body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Could not load the dashboard.");
+      if (!cancelled) setFigures(body);
+    }).catch(() => {
+      if (!cancelled) setFigures(null);
+    });
+    return () => {
+      cancelled = true;
     };
-  return <div className="page"><D title={`Good morning, ${session.user.name.split(" ")[0]}`} subtitle={`Here’s how ${session.client.name} is performing this month.`} actions={<><Cmp_oe value={r} onChange={i} /><Cmp_w icon="plus" onClick={() => t(`transaction`)}>New transaction</Cmp_w></>} /><div className="metrics-grid"><Cmp_le label="Total revenue" value={s.revenue} change="12.5%" positive={!0} icon="arrowUp" accent="blue" /><Cmp_le label="Total expenses" value={s.expenses} change="4.2%" positive={!1} icon="arrowDown" accent="coral" /><Cmp_le label="Net income" value={s.income} change="18.3%" positive={!0} icon="chart" accent="green" /><Cmp_le label="Cash balance" value={s.cash} change="$14,820" positive={!0} icon="wallet" accent="purple" /></div><div className="dashboard-main"><E className="chart-card"><Cmp_re title="Revenue & expenses" subtitle="Financial performance over the last 6 months" action={<div className="chart-tools"><span><i className="legend blue" />Revenue</span><span><i className="legend gray" />Expenses</span><Cmp_ae value={a} label="View" options={[`Accrual basis`, `Cash basis`]} onChange={o} /></div>} /><div className="chart-summary"><strong>$246,780</strong><span className="trend-up"><C name="arrowUp" size={13} />14.6%</span><em>total revenue</em></div><Cmp_ue /></E><E className="cash-card"><Cmp_re title="Cash flow" subtitle={s.label} action={<button className="icon-button" aria-label="Download cash flow summary" onClick={() => n(`Cash flow summary downloaded`)}><C name="more" /></button>} /><div className="cash-total"><span>Net cash flow</span><strong>+$18,420.52</strong><Cmp_ne tone="green">+8.4%</Cmp_ne></div><div className="cash-bars">{[[`Jan`, 48, 31], [`Feb`, 58, 38], [`Mar`, 67, 44], [`Apr`, 73, 51], [`May`, 82, 55]].map(([e, t, n]) => <div className="bar-group" key={e}><div className="bars"><i style={{
-                height: `${t}%`
+  }, [session.client?.id, period, basis]);
+  let metrics = figures?.metrics;
+  let chart = figures?.chart;
+  return <div className="page"><D title={`Good morning, ${session.user.name.split(" ")[0]}`} subtitle={`Here’s how ${session.client.name} is performing for ${figures?.period.label || period}.`} actions={<><Cmp_oe value={period} onChange={setPeriod} /><Cmp_w icon="plus" onClick={() => t(`transaction`)}>New transaction</Cmp_w></>} /><div className="metrics-grid"><Cmp_le label="Total revenue" value={metrics ? metrics.revenue : `—`} change={metrics?.revenueChange?.text} positive={metrics?.revenueChange?.positive} icon="arrowUp" accent="blue" /><Cmp_le label="Total expenses" value={metrics ? metrics.expenses : `—`} change={metrics?.expenseChange?.text} positive={metrics?.expenseChange?.positive} icon="arrowDown" accent="coral" /><Cmp_le label="Net income" value={metrics ? metrics.netIncome : `—`} change={metrics?.netIncomeChange?.text} positive={metrics?.netIncomeChange?.positive} icon="chart" accent="green" /><Cmp_le label="Cash balance" value={metrics ? metrics.cash : `—`} change={metrics?.cashChange} positive={metrics?.cashChangePositive} icon="wallet" accent="purple" /></div><div className="dashboard-main"><E className="chart-card"><Cmp_re title="Revenue & expenses" subtitle="Monthly totals from the same ledger" action={<div className="chart-tools"><span><i className="legend blue" />Revenue</span><span><i className="legend gray" />Expenses</span><Cmp_ae value={basisLabel} label="View" options={[`Accrual basis`, `Cash basis`]} onChange={setBasisLabel} /></div>} /><div className="chart-summary"><strong>{chart ? chart.revenue : `—`}</strong>{chart?.change ? <span className={chart.change.positive ? `trend-up` : `trend-down`}><C name={chart.change.positive ? `arrowUp` : `arrowDown`} size={13} />{chart.change.text}</span> : null}<em>total revenue</em></div><Cmp_ue months={chart?.months || []} /></E><E className="cash-card"><Cmp_re title="Cash flow" subtitle={figures?.period.label || period} /><div className="cash-total"><span>Net cash flow</span><strong>+$18,420.52</strong></div><div className="cash-bars">{[[`Jan`, 48, 31], [`Feb`, 58, 38], [`Mar`, 67, 44], [`Apr`, 73, 51], [`May`, 82, 55]].map(([label, incoming, outgoing]) => <div className="bar-group" key={label}><div className="bars"><i style={{
+                height: `${incoming}%`
               }} /><i style={{
-                height: `${n}%`
-              }} /></div><span>{e}</span></div>)}</div><div className="cash-legend"><span><i className="legend blue" />Cash in <b>$42,680</b></span><span><i className="legend light" />Cash out <b>$24,259</b></span></div></E></div><div className="dashboard-lower"><E className="transactions-card"><Cmp_re title="Recent transactions" subtitle="Your latest account activity" action={<button className="text-button" onClick={() => e(`Transactions`)}>View all <C name="chevron" size={14} /></button>} /><Cmp_fe compact={!0} /></E><div className="right-stack"><E><Cmp_re title="Outstanding invoices" action={<button className="text-button" onClick={() => e(`Invoices`)}>View all</button>} /><div className="invoice-total"><div><span>Total outstanding</span><strong>$18,740.00</strong></div><div className="invoice-ring"><span>72%</span></div></div><div className="mini-list"><div><T initials="AS" color="teal" small={!0} /><span><b>Acme Studio</b><small>Due May 28</small></span><strong>$6,800</strong></div><div><T initials="LM" color="purple" small={!0} /><span><b>Lucid Media</b><small>Overdue 4 days</small></span><strong className="danger">$4,250</strong></div></div></E><E><Cmp_re title="Upcoming bills" action={<button className="text-button" onClick={() => e(`Expenses`)}>View all</button>} /><div className="bill-row"><span className="date-chip"><b>28</b>May</span><span><b>Mercury Insurance</b><small>Insurance</small></span><strong>$1,240.00</strong></div><div className="bill-row"><span className="date-chip"><b>01</b>Jun</span><span><b>WeWork</b><small>Rent & lease</small></span><strong>$1,850.00</strong></div></E></div></div><E className="quick-actions"><div><span className="sparkle"><C name="sparkle" /></span><span><b>Quick actions</b><small>Save time on everyday tasks</small></span></div><div className="quick-buttons"><Cmp_w variant="secondary" icon="invoice" onClick={() => t(`invoice`)}>Create invoice</Cmp_w><Cmp_w variant="secondary" icon="upload" onClick={() => t(`upload`)}>Upload receipt</Cmp_w><Cmp_w variant="secondary" icon="arrows" onClick={() => t(`expense`)}>Record expense</Cmp_w><Cmp_w variant="secondary" icon="chart" onClick={() => e(`Reports`)}>Run a report</Cmp_w></div></E></div>;
+                height: `${outgoing}%`
+              }} /></div><span>{label}</span></div>)}</div><div className="cash-legend"><span><i className="legend blue" />Cash in <b>$42,680</b></span><span><i className="legend light" />Cash out <b>$24,259</b></span></div></E></div>
+<div className="dashboard-lower"><E className="transactions-card"><Cmp_re title="Recent transactions" subtitle="Your latest account activity" action={<button className="text-button" onClick={() => e(`Transactions`)}>View all <C name="chevron" size={14} /></button>} /><Cmp_fe compact={!0} /></E><div className="right-stack"><E><Cmp_re title="Outstanding invoices" action={<button className="text-button" onClick={() => e(`Invoices`)}>View all</button>} /><div className="invoice-total"><div><span>Total outstanding</span><strong>$18,740.00</strong></div><div className="invoice-ring"><span>72%</span></div></div><div className="mini-list"><div><T initials="AS" color="teal" small={!0} /><span><b>Acme Studio</b><small>Due May 28</small></span><strong>$6,800</strong></div><div><T initials="LM" color="purple" small={!0} /><span><b>Lucid Media</b><small>Overdue 4 days</small></span><strong className="danger">$4,250</strong></div></div></E><E><Cmp_re title="Upcoming bills" action={<button className="text-button" onClick={() => e(`Expenses`)}>View all</button>} /><div className="bill-row"><span className="date-chip"><b>28</b>May</span><span><b>Mercury Insurance</b><small>Insurance</small></span><strong>$1,240.00</strong></div><div className="bill-row"><span className="date-chip"><b>01</b>Jun</span><span><b>WeWork</b><small>Rent & lease</small></span><strong>$1,850.00</strong></div></E></div></div><E className="quick-actions"><div><span className="sparkle"><C name="sparkle" /></span><span><b>Quick actions</b><small>Save time on everyday tasks</small></span></div><div className="quick-buttons"><Cmp_w variant="secondary" icon="invoice" onClick={() => t(`invoice`)}>Create invoice</Cmp_w><Cmp_w variant="secondary" icon="upload" onClick={() => t(`upload`)}>Upload receipt</Cmp_w><Cmp_w variant="secondary" icon="arrows" onClick={() => t(`expense`)}>Record expense</Cmp_w><Cmp_w variant="secondary" icon="chart" onClick={() => e(`Reports`)}>Run a report</Cmp_w></div></E></div>;
 }
+
 function Cmp_fe({
   compact: e = !1,
   rows: t = ce,
@@ -303,19 +288,6 @@ function Cmp_fe({
 }) {
   let c = e ? t.slice(0, 4) : t;
   return <div className={e ? `transaction-list` : `table-wrap`}>{e ? c.map(e => <div className="transaction-row" key={e.name}><span className={`transaction-icon ${e.type}`}><C name={e.type === `income` ? `arrowDown` : `arrowUp`} size={16} /></span><span className="transaction-name"><b>{e.name}</b><small>{e.date} · {e.category}</small></span><strong className={e.type}>{e.amount}</strong></div>) : <table><thead><tr><th><input type="checkbox" aria-label="Select all" checked={c.length > 0 && c.every(e => n.includes(e.name))} onChange={i} /></th><th><button className={`sort-button ${o === `newest` || o === `oldest` ? `active` : ``}`} onClick={() => s?.(o === `newest` ? `oldest` : `newest`)}>Date<C name={o === `oldest` ? `arrowUp` : `arrowDown`} size={11} /></button></th><th>Description</th><th>Category</th><th>Account</th><th><button className={`sort-button ${o === `amount` ? `active` : ``}`} onClick={() => s?.(`amount`)}>Amount <C name="arrowDown" size={11} /></button></th><th>Status</th><th /></tr></thead><tbody>{c.map(e => <tr className={n.includes(e.name) ? `selected-row` : ``} onDoubleClick={() => a?.(e)} key={e.name}><td><input type="checkbox" aria-label={`Select ${e.name}`} checked={n.includes(e.name)} onChange={() => r?.(e.name)} /></td><td>{e.date}, 2025</td><td><div className="table-primary"><span className={`transaction-icon ${e.type}`}><C name={e.type === `income` ? `arrowDown` : `arrowUp`} size={15} /></span><span><b>{e.name}</b><small>{e.detail}</small></span></div></td><td><Cmp_ne>{e.category}</Cmp_ne></td><td>{e.account}</td><td><strong className={e.type}>{e.amount}</strong></td><td><Cmp_ne tone={e.status === `For review` ? `amber` : e.status === `Matched` ? `blue` : `green`}>{e.status}</Cmp_ne></td><td><button className="row-action" aria-label={`Open ${e.name} transaction`} onClick={() => a?.(e)}><C name="more" /></button></td></tr>)}</tbody></table>}</div>;
-}
-var ve = [[`Revenue`, ``, ``, ``], [`Sales revenue`, `$76,240`, `$68,510`, `+11.3%`], [`Consulting income`, `$8,000`, `$6,750`, `+18.5%`], [`Total revenue`, `$84,240`, `$75,260`, `+11.9%`], [`Cost of goods sold`, ``, ``, ``], [`Contractor costs`, `$8,420`, `$7,840`, `+7.4%`], [`Hosting & infrastructure`, `$4,260`, `$3,980`, `+7.0%`], [`Gross profit`, `$71,560`, `$63,440`, `+12.8%`], [`Operating expenses`, ``, ``, ``], [`Payroll`, `$12,569`, `$11,840`, `+6.2%`], [`Rent & lease`, `$3,700`, `$3,700`, `0.0%`], [`Software & subscriptions`, `$2,985`, `$2,620`, `+13.9%`], [`Marketing & advertising`, `$4,750`, `$5,110`, `−7.0%`], [`Net operating income`, `$51,556`, `$42,380`, `+21.7%`]];
-function Cmp_ye() {
-  let {
-      notify: e,
-      session
-    } = O(),
-    [t, n] = (0, b.useState)(`Profit & loss`),
-    [r, i] = (0, b.useState)(`May 1 – May 31`),
-    [a, o] = (0, b.useState)(`Monthly`);
-  return <div className="page"><D title="Reports" subtitle="Analyze performance and make informed financial decisions." actions={<><Cmp_w variant="secondary" icon="download" onClick={() => e(`${t} exported as PDF`)}>Export</Cmp_w><Cmp_w variant="secondary" icon="send" onClick={() => e(`Secure sharing link copied for ${t}`)}>Share</Cmp_w></>} /><div className="report-layout"><aside className="report-menu"><span>Financial statements</span>{[`Profit & loss`, `Balance sheet`, `Cash flow statement`].map((e, r) => <button className={t === e ? `active` : ``} onClick={() => n(e)} key={e}><C name={[`chart`, `book`, `arrows`][r]} /><div><b>{e}</b><small>{[`Income and expenses`, `Assets and liabilities`, `Cash movement`][r]}</small></div><C name="chevron" size={15} /></button>)}<span>Management reports</span>{[`Budget vs. actuals`, `Accounts receivable`, `Expense summary`].map(e => <button onClick={() => n(e)} key={e}><C name="file" /><div><b>{e}</b><small>View detailed report</small></div></button>)}</aside><E className="report-sheet"><div className="report-top"><div><span className="report-logo">L</span><div><h2>{session.client.legalName}</h2><p>{t}</p></div></div><div className="report-filters"><Cmp_oe value={r} onChange={i} /><Cmp_ae value={a} options={[`Monthly`, `Quarterly`, `Yearly`]} onChange={t => {
-              o(t), e(`Report grouped ${t.toLowerCase()}`);
-            }} /></div></div><div className="report-title"><h1>{t}</h1><p>For the month ended May 31, 2025 · Accrual basis</p></div><table className="statement"><thead><tr><th>Account</th><th>May 2025</th><th>Apr 2025</th><th>Change</th></tr></thead><tbody>{ve.map((e, t) => <tr className={e[1] === `` ? `section-row` : e[0].startsWith(`Total`) || e[0].includes(`profit`) || e[0].includes(`income`) ? `total-row` : ``} key={`${e[0]}-${t}`}><td>{e[0]}</td><td>{e[1]}</td><td>{e[2]}</td><td className={e[3].startsWith(`+`) ? `positive` : ``}>{e[3]}</td></tr>)}</tbody></table><div className="report-note"><C name="check" size={16} /><span>Books are reconciled through May 24, 2025</span><em>Generated May 24 at 10:42 AM</em></div></E></div></div>;
 }
 var be = [[`INV-1084`, `Acme Studio LLC`, `AS`, `May 14, 2025`, `May 28, 2025`, `$6,800.00`, `Due soon`, `amber`], [`INV-1083`, `Lucid Media Co.`, `LM`, `May 02, 2025`, `May 20, 2025`, `$4,250.00`, `Overdue`, `red`], [`INV-1082`, `Brightline Labs`, `BL`, `Apr 28, 2025`, `May 28, 2025`, `$3,840.00`, `Sent`, `blue`], [`INV-1081`, `Mason & Finch`, `MF`, `Apr 20, 2025`, `May 20, 2025`, `$7,200.00`, `Paid`, `green`], [`INV-1080`, `Orbit Systems`, `OS`, `Apr 14, 2025`, `May 14, 2025`, `$3,850.00`, `Paid`, `green`]];
 function Cmp_xe() {
@@ -515,7 +487,7 @@ function Te({ session, onSession }) {
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`INV-1084 · Acme Studio`, `Invoice · $6,800.00`, `Invoices`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={session.client?.id} clientId={session.client?.id} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Cmp_ye /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={session.client?.id} clientId={session.client?.id} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,

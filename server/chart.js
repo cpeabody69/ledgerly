@@ -7,7 +7,7 @@ export const TEMPLATE_NOTE =
   "A synthetic chart for a small service business. It is a starting template, not GAAP guidance.";
 
 export const CASH_RULE =
-  "Cash basis counts an entry only when a line posts to a cash account. Statements are not computed from this rule yet.";
+  "Cash basis counts an entry only when a line posts to a cash account.";
 
 export const CHART = [
   { code: "1000", name: "Cash", type: "asset", detailType: "Cash and cash equivalents", normalBalance: "debit", cash: 1 },
