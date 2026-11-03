@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { parseCents } from "../shared/money.js";
 import { reconciliationMath } from "../shared/activity.js";
 import { postJournalEntry } from "./ledger.js";
+import { filesForTransactions } from "./documents.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS bank_accounts (
@@ -189,7 +190,7 @@ function transactionRows(db, session) {
   ).all(session.firm_id, session.selected_client_id);
 }
 
-function transactionJson(row) {
+function transactionJson(row, attachments = []) {
   const amountCents = asCents(row.amount_cents);
   return {
     id: row.id,
@@ -210,7 +211,13 @@ function transactionJson(row) {
     journalReference: row.journal_reference,
     cleared: Boolean(row.cleared_reconciliation_id),
     source: row.source,
+    attachments,
   };
+}
+
+function mapTransactions(db, session) {
+  const files = filesForTransactions(db, session);
+  return transactionRows(db, session).map((row) => transactionJson(row, files.get(row.id) || []));
 }
 
 function chartJson(db, session) {
@@ -237,7 +244,7 @@ function bankAccountJson(row) {
 
 export function listTransactions(db, session, { clientId, month } = {}) {
   if (clientId && clientId !== session.selected_client_id) return fail(404, "Client not found.");
-  let rows = transactionRows(db, session).map(transactionJson);
+  let rows = mapTransactions(db, session);
   if (month) {
     const monthNumber = Number(month);
     if (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return fail(400, "Choose a month from 1 to 12.");
@@ -283,7 +290,7 @@ export function listBanking(db, session, clientId) {
     payload: {
       client: { id: session.selected_client_id },
       accounts,
-      lines: transactionRows(db, session).map(transactionJson),
+      lines: mapTransactions(db, session),
       reconciliations,
     },
   };

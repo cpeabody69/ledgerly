@@ -8,6 +8,7 @@ import { formatMoney } from "../shared/money.js";
 import { Accounting } from "./Accounting.jsx";
 import { Banking } from "./Banking.jsx";
 import { Clients } from "./Clients.jsx";
+import { ReceiptModal } from "./Receipt.jsx";
 import { Reports } from "./Reports.jsx";
 import { Transactions } from "./Transactions.jsx";
 
@@ -450,7 +451,7 @@ function Te({ session, onSession }) {
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`INV-1084 · Acme Studio`, `Invoice · $6,800.00`, `Invoices`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Clients onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Clients selectedClientId={session.client?.id} onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,
@@ -465,9 +466,9 @@ function Te({ session, onSession }) {
                 l(!c), d(!1);
               }} aria-label="Notifications"><C name="bell" /><i /></button>{c && <div className="top-menu notification-menu"><div className="menu-title"><b>Notifications</b><button onClick={() => m(`All notifications marked read`)}>Mark all read</button></div><button onClick={() => h(`Transactions`)}><span className="notice-dot amber" /><span><b>12 transactions need review</b><small>Business checking · 8 minutes ago</small></span></button><button onClick={() => h(`Invoices`)}><span className="notice-dot red" /><span><b>Invoice INV-1083 is overdue</b><small>Lucid Media · 4 days overdue</small></span></button><button onClick={() => h(`Banking`)}><span className="notice-dot blue" /><span><b>Bank reconciliation completed</b><small>Business checking · Yesterday</small></span></button></div>}</div><span className="divider" /><div className="top-menu-wrap"><button className={`profile ${u ? `active` : ``}`} onClick={() => {
                 d(!u), l(!1);
-              }}><T initials={session.user.name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase()} color="navy" /><span><b>{session.user.name}</b><small>{session.user.roleLabel}</small></span><C name="chevron" size={14} /></button>{u && <div className="top-menu profile-menu"><span>{session.user.email}</span><button onClick={() => h(`Settings`)}><C name="settings" size={15} />Company settings</button><button onClick={() => m(`Profile settings opened`)}><C name="users" size={15} />Personal profile</button><button onClick={signOut}>Sign out</button></div>}</div></div></header><div className="content">{_}</div></main></div>{n && <Cmp_we type={n} onClose={() => r(null)} onSave={e => {
+              }}><T initials={session.user.name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase()} color="navy" /><span><b>{session.user.name}</b><small>{session.user.roleLabel}</small></span><C name="chevron" size={14} /></button>{u && <div className="top-menu profile-menu"><span>{session.user.email}</span><button onClick={() => h(`Settings`)}><C name="settings" size={15} />Company settings</button><button onClick={() => m(`Profile settings opened`)}><C name="users" size={15} />Personal profile</button><button onClick={signOut}>Sign out</button></div>}</div></div></header><div className="content">{_}</div></main></div>{n === `upload` ? <ReceiptModal clientName={session.client?.name} clientId={session.client?.id} onClose={() => r(null)} /> : n ? <Cmp_we type={n} onClose={() => r(null)} onSave={e => {
       r(null), m(e);
-    }} />}{i && <div className="toast" role="status"><span><C name="check" size={15} /></span>{i}</div>}</ie.Provider>;
+    }} /> : null}{i && <div className="toast" role="status"><span><C name="check" size={15} /></span>{i}</div>}</ie.Provider>;
 }
 
 export { Te };
