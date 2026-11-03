@@ -479,7 +479,7 @@ font-weight:700;
 display:inline-flex}
 .revenue-chart{
 height:245px;
-padding:8px 20px 24px 52px;
+padding:8px 20px 24px 68px;
 position:relative}
 .revenue-chart svg{
 width:100%;
@@ -506,15 +506,18 @@ stroke-width:3px}
 .dots .expense-dot{
 stroke:#9aa7b5}
 .chart-y{
-color:#99a5b3;
-flex-direction:column;
-justify-content:space-between;
-font-size:8px;
-display:flex;
 position:absolute;
-top:10px;
-bottom:28px;
-left:18px}
+top:8px;
+bottom:24px;
+left:6px;
+width:58px}
+.chart-y span{
+color:#99a5b3;
+white-space:nowrap;
+font-size:8px;
+position:absolute;
+right:0;
+transform:translateY(-50%)}
 .chart-x{
 color:#8795a5;
 justify-content:space-between;
@@ -522,7 +525,7 @@ font-size:8px;
 display:flex;
 position:absolute;
 bottom:5px;
-left:52px;
+left:68px;
 right:20px}
 .cash-total{
 background:#f6f8fb;
@@ -964,6 +967,8 @@ gap:9px;
 width:100%;
 padding:10px;
 display:flex}
+.report-menu button:disabled{opacity:.45;cursor:default}
+.trend-down{color:var(--red);font-weight:700}
 .report-menu button.active{
 color:var(--blue);
 background:#edf3fb}

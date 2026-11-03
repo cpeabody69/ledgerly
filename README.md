@@ -1,8 +1,8 @@
 # Ledgerly
 
-Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity, and posting a category writes a new journal entry.
+Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers.
 
-Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart, ledger, and statement activity. Dashboard, Invoices, and Reports still show the published picture. They do not read these books.
+Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart, ledger, and statement activity. Invoices stay the published picture. They do not read these books.
 
 ## Run
 
@@ -54,7 +54,7 @@ Open a line, choose a category, and save. Saving posts a new balanced journal. E
 
 Firms, users, clients, sessions, and audit events live in SQLite (`data/ledgerly.sqlite`, created on first start). Each client also gets an empty chart, a books policy (accrual basis, fiscal year starting in January), journal tables, and empty bank-activity tables. Every journal row carries the firm, the client, the user who posted it, and the time. Money is stored as integer cents. Posting runs in a database transaction and is kept only when the lines balance. Categorizing a statement line posts a new journal. It does not edit an older one.
 
-The chart is a synthetic small-service template, marked as a template, not GAAP guidance. Account `1000 Cash` is marked as the cash account so a later cash-basis statement can count an entry only when a line posts to cash. Those statements are not built yet.
+The chart is a synthetic small-service template, marked as a template, not GAAP guidance. Account `1000 Cash` is marked as the cash account. Cash basis counts a journal entry only when a line posts to that account, so an accrual to accounts receivable is left out. Profit and loss, the balance sheet, and cash flow use the open client’s ledger for the selected period and basis. Export downloads that statement. The four dashboard metrics and the revenue chart use the same totals. A percent appears only when the prior period has an amount to compare.
 
 A user in one firm who requests another firm’s client id gets 404. The browser is not the system of record. The open client is stored on the server session, so a refresh keeps the sign-in and the selected client.
 
@@ -62,10 +62,11 @@ A user in one firm who requests another firm’s client id gets 404. The browser
 
 These screens still look like the published draft and do not read the ledger:
 
-- Dashboard, Invoices, and Reports, including their dollar figures
-- The Dashboard’s recent-transaction list
-- Expenses placeholder
+- The dashboard’s recent transactions, cash-flow card, outstanding invoices, and upcoming bills
+- Invoices
+- The Expenses placeholder
 - The Settings overview cards
 - The Clients banner counts, document-request copy, and review-queue copy
 - The revenue and net-income text on the four original client rows (screen copy only, not stored)
-- Add client, add company, the invoice composer, exports, Ledger AI, notifications, and personal profile
+- Add client, add company, the invoice composer, exports other than a statement, Ledger AI, notifications, and personal profile
+- Budget vs. actuals, accounts receivable, and expense summary, which stay disabled
