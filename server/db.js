@@ -8,6 +8,7 @@ import { ensureBanking } from "./banking.js";
 import { ensureFirmCrm } from "./clients.js";
 import { ensureDocuments } from "./documents.js";
 import { ensureInvoices } from "./invoices.js";
+import { ensureExpenses } from "./expenses.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -91,6 +92,7 @@ export function openDatabase(dbPath) {
   ensureFirmCrm(db);
   ensureDocuments(db);
   ensureInvoices(db);
+  ensureExpenses(db);
   return db;
 }
 
@@ -151,13 +153,13 @@ function memberJson(row) {
 
 export function sessionPayload(db, session) {
   const user = db.prepare("SELECT id, firm_id, email, name, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
-  const firm = db.prepare("SELECT id, name FROM firms WHERE id = ?").get(session.firm_id);
+  const firm = db.prepare("SELECT id, name, require_receipt FROM firms WHERE id = ?").get(session.firm_id);
   const clients = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id).map(clientJson);
   const selected = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(session.selected_client_id, session.firm_id);
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
   return {
     user: memberJson(user),
-    firm: { id: firm.id, name: firm.name },
+    firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1 },
     clients,
     client: selected ? clientJson(selected) : null,
     members,

@@ -4,6 +4,7 @@ import path from "node:path";
 import { createClient, findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { listFirm } from "./clients.js";
 import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
+import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
@@ -197,6 +198,28 @@ async function handle(req, res, db, options) {
     const result = req.method === "GET"
       ? listDocuments(db, session, url.searchParams.get("clientId"))
       : storeDocument(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/expenses" && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = req.method === "GET" ? listExpenses(db, session) : createExpense(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "PATCH" && pathname === "/api/firm") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = updateReceiptSetting(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
