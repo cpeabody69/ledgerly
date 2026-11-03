@@ -1,8 +1,11 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
-// Accounting reads this client's books. Dashboard, Transactions, Invoices, and Reports stay the published picture.
+// Accounting is the client's books. Transactions and Banking are this client's statement activity.
+// Dashboard, Invoices, and Reports stay the published picture.
 import { createContext, useContext, useMemo, useState } from "react";
 import { Accounting } from "./Accounting.jsx";
+import { Banking } from "./Banking.jsx";
+import { Transactions } from "./Transactions.jsx";
 
 const b = { createContext, useContext, useMemo, useState };
 
@@ -301,55 +304,6 @@ function Cmp_fe({
   let c = e ? t.slice(0, 4) : t;
   return <div className={e ? `transaction-list` : `table-wrap`}>{e ? c.map(e => <div className="transaction-row" key={e.name}><span className={`transaction-icon ${e.type}`}><C name={e.type === `income` ? `arrowDown` : `arrowUp`} size={16} /></span><span className="transaction-name"><b>{e.name}</b><small>{e.date} · {e.category}</small></span><strong className={e.type}>{e.amount}</strong></div>) : <table><thead><tr><th><input type="checkbox" aria-label="Select all" checked={c.length > 0 && c.every(e => n.includes(e.name))} onChange={i} /></th><th><button className={`sort-button ${o === `newest` || o === `oldest` ? `active` : ``}`} onClick={() => s?.(o === `newest` ? `oldest` : `newest`)}>Date<C name={o === `oldest` ? `arrowUp` : `arrowDown`} size={11} /></button></th><th>Description</th><th>Category</th><th>Account</th><th><button className={`sort-button ${o === `amount` ? `active` : ``}`} onClick={() => s?.(`amount`)}>Amount <C name="arrowDown" size={11} /></button></th><th>Status</th><th /></tr></thead><tbody>{c.map(e => <tr className={n.includes(e.name) ? `selected-row` : ``} onDoubleClick={() => a?.(e)} key={e.name}><td><input type="checkbox" aria-label={`Select ${e.name}`} checked={n.includes(e.name)} onChange={() => r?.(e.name)} /></td><td>{e.date}, 2025</td><td><div className="table-primary"><span className={`transaction-icon ${e.type}`}><C name={e.type === `income` ? `arrowDown` : `arrowUp`} size={15} /></span><span><b>{e.name}</b><small>{e.detail}</small></span></div></td><td><Cmp_ne>{e.category}</Cmp_ne></td><td>{e.account}</td><td><strong className={e.type}>{e.amount}</strong></td><td><Cmp_ne tone={e.status === `For review` ? `amber` : e.status === `Matched` ? `blue` : `green`}>{e.status}</Cmp_ne></td><td><button className="row-action" aria-label={`Open ${e.name} transaction`} onClick={() => a?.(e)}><C name="more" /></button></td></tr>)}</tbody></table>}</div>;
 }
-function Cmp_pe() {
-  let {
-      openComposer: e,
-      notify: t
-    } = O(),
-    [n, r] = (0, b.useState)(``),
-    [i, a] = (0, b.useState)(`All`),
-    [o, s] = (0, b.useState)(`May 1 – May 31`),
-    [c, l] = (0, b.useState)(`All statuses`),
-    [u, d] = (0, b.useState)([]),
-    [f, p] = (0, b.useState)(`newest`),
-    [m, h] = (0, b.useState)(1),
-    [g, _] = (0, b.useState)(null),
-    v = (0, b.useMemo)(() => ce.filter(e => {
-      let t = [e.name, e.detail, e.category, e.account, e.amount].join(` `).toLowerCase().includes(n.toLowerCase()),
-        r = i === `All` || i === `Income` && e.type === `income` || i === `Expenses` && e.type === `expense` || i === `For review` && e.status === `For review`,
-        a = c === `All statuses` || e.status === c;
-      return t && r && a && o !== `Apr 1 – Apr 30`;
-    }).sort((e, t) => {
-      if (f === `oldest`) return e.date.localeCompare(t.date);
-      if (f === `amount`) {
-        let n = e => Number(e.replace(/[^0-9.]/g, ``));
-        return n(t.amount) - n(e.amount);
-      }
-      return t.date.localeCompare(e.date);
-    }), [o, n, f, c, i]),
-    y = Math.max(1, Math.ceil(v.length / 6)),
-    ee = v.slice((m - 1) * 6, m * 6);
-  return <div className="page"><D title="Transactions" subtitle="Review, categorize, and reconcile all your business activity." actions={<><Cmp_w variant="secondary" icon="upload" onClick={() => t(`Import template ready — choose a CSV file`)}>Import</Cmp_w><Cmp_w icon="plus" onClick={() => e(`transaction`)}>Add transaction</Cmp_w></>} /><div className="summary-strip"><div><span>All transactions</span><strong>248</strong></div><div><span>For review</span><strong className="amber-text">12</strong></div><div><span>Uncategorized</span><strong>8</strong></div><div><span>Matched</span><strong className="green-text">186</strong></div></div><E className="table-card"><div className="toolbar"><div className="search-field"><C name="search" /><input value={n} onChange={e => {
-            r(e.target.value), h(1);
-          }} placeholder="Search by description, amount, or category…" /></div><Cmp_oe value={o} onChange={e => {
-          s(e), h(1);
-        }} /><Cmp_ae icon="filter" value={c} label={c} options={[`All statuses`, `Categorized`, `For review`]} onChange={e => {
-          l(e), h(1);
-        }} /></div><div className="tab-bar">{[`All`, `For review`, `Income`, `Expenses`].map(e => <button className={i === e ? `active` : ``} onClick={() => {
-          a(e), h(1);
-        }} key={e}>{e}{e === `All` && <span>248</span>}{e === `For review` && <span>12</span>}</button>)}</div>{u.length > 0 && <div className="bulk-bar"><b>{u.length} selected</b><button onClick={() => t(`${u.length} transactions categorized`)}>Categorize</button><button onClick={() => t(`${u.length} transactions excluded`)}>Exclude</button><button onClick={() => d([])}>Clear</button></div>}{v.length ? <Cmp_fe rows={ee} selected={u} onToggle={e => d(t => t.includes(e) ? t.filter(t => t !== e) : [...t, e])} onToggleAll={() => d(e => v.every(t => e.includes(t.name)) ? e.filter(e => !v.some(t => t.name === e)) : [...new Set([...e, ...v.map(e => e.name)])])} onOpen={_} sort={f} onSort={p} /> : <Cmp_se title="No transactions found" detail="Try a different search term, status, or transaction type." />}<div className="table-footer"><span>Showing {v.length ? (m - 1) * 6 + 1 : 0}–{Math.min(m * 6, v.length)} of {v.length} matching transactions · {o}</span><div><Cmp_w variant="secondary" disabled={m === 1} onClick={() => h(e => e - 1)}>Previous</Cmp_w><span className="page-count">Page {m} of {y}</span><Cmp_w variant="secondary" disabled={m >= y} onClick={() => h(e => e + 1)}>Next</Cmp_w></div></div></E>{g && <Cmp_me transaction={g} onClose={() => _(null)} onUpdate={e => {
-      _(null), t(e);
-    }} />}</div>;
-}
-function Cmp_me({
-  transaction: e,
-  onClose: t,
-  onUpdate: n
-}) {
-  let [r, i] = (0, b.useState)(e.category),
-    [a, o] = (0, b.useState)(``);
-  return <div className="drawer-scrim" onMouseDown={t}><aside className="detail-drawer" aria-label={`${e.name} transaction details`} onMouseDown={e => e.stopPropagation()}><div className="drawer-header"><div><Cmp_ne tone={e.status === `For review` ? `amber` : `green`}>{e.status}</Cmp_ne><h2>{e.name}</h2><p>{e.detail}</p></div><button className="modal-close" onClick={t} aria-label="Close">×</button></div><div className="transaction-amount-block"><span>{e.type === `income` ? `Money in` : `Money out`}</span><strong className={e.type}>{e.amount}</strong><small>{e.date}, 2025</small></div><div className="drawer-section"><h3>Bank details</h3><dl><div><dt>Account</dt><dd>{e.bankDetail}</dd></div><div><dt>Statement description</dt><dd>{e.name.toUpperCase()}</dd></div><div><dt>Reference</dt><dd>TXN-{e.date.replace(/\D/g, ``)}-0482</dd></div></dl></div><div className="drawer-section"><h3>Accounting treatment</h3><label className="field"><span>Category</span><select value={r} onChange={e => i(e.target.value)}><option>Sales income</option><option>Consulting income</option><option>Software & hosting</option><option>Rent & lease</option><option>Payroll expense</option><option>Travel</option><option>Interest income</option></select></label><label className="field"><span>Internal note</span><textarea value={a} onChange={e => o(e.target.value)} placeholder="Add context for your accountant…" /></label></div><div className="reconciliation-callout"><span><C name="check" size={15} /></span><div><b>Bank feed verified</b><small>Imported from {e.bankDetail}</small></div></div><div className="drawer-footer"><Cmp_w variant="secondary" onClick={() => n(`Transaction excluded from reports`)}>Exclude</Cmp_w><Cmp_w onClick={() => n(`${e.name} saved to ${r}${a ? ` with note` : ``}`)}>Save changes</Cmp_w></div></aside></div>;
-}
 var ve = [[`Revenue`, ``, ``, ``], [`Sales revenue`, `$76,240`, `$68,510`, `+11.3%`], [`Consulting income`, `$8,000`, `$6,750`, `+18.5%`], [`Total revenue`, `$84,240`, `$75,260`, `+11.9%`], [`Cost of goods sold`, ``, ``, ``], [`Contractor costs`, `$8,420`, `$7,840`, `+7.4%`], [`Hosting & infrastructure`, `$4,260`, `$3,980`, `+7.0%`], [`Gross profit`, `$71,560`, `$63,440`, `+12.8%`], [`Operating expenses`, ``, ``, ``], [`Payroll`, `$12,569`, `$11,840`, `+6.2%`], [`Rent & lease`, `$3,700`, `$3,700`, `0.0%`], [`Software & subscriptions`, `$2,985`, `$2,620`, `+13.9%`], [`Marketing & advertising`, `$4,750`, `$5,110`, `−7.0%`], [`Net operating income`, `$51,556`, `$42,380`, `+21.7%`]];
 function Cmp_ye() {
   let {
@@ -561,7 +515,7 @@ function Te({ session, onSession }) {
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`INV-1084 · Acme Studio`, `Invoice · $6,800.00`, `Invoices`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Cmp_pe /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Cmp_ye /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={session.client?.id} clientId={session.client?.id} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Cmp_ye /> : e === `Invoices` ? <Cmp_xe /> : e === `Clients` ? <Se /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,
@@ -570,7 +524,7 @@ function Te({ session, onSession }) {
     onSession,
     selectClient,
     signOut
-  }}><div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><i /><i /><i /></span><span>Ledgerly</span></div><button className={`workspace-switcher ${f ? `open` : ``}`} onClick={() => p(!f)}><T initials={session.client.initials} color="blue" small={!0} /><div><b>{session.client.name}</b><small>Business account</small></div><span className="rotate-chevron"><C name="chevron" size={14} /></span></button>{f && <div className="workspace-menu"><span>Switch company</span>{session.clients.map(client => <button className={client.id === session.client.id ? `selected` : ``} onClick={() => selectClient(client.id)} key={client.id}><T initials={client.initials} color="blue" small={!0} /><span><b>{client.name}</b><small>{client.id === session.client.id ? `Current company` : `Business account`}</small></span>{client.id === session.client.id ? <C name="check" size={14} /> : null}</button>)}<button onClick={() => m(`Company creation flow opened`)}><span className="add-company"><C name="plus" size={14} /></span><span><b>Add another company</b><small>Set up a new set of books</small></span></button></div>}<nav><span className="nav-label">WORKSPACE</span>{te.slice(0, 7).map(([t, n]) => <button className={e === t ? `active` : ``} onClick={() => h(t)} key={t}><C name={n} /><span>{t}</span>{t === `Transactions` && <em>12</em>}</button>)}<span className="nav-label manage">MANAGE</span>{te.slice(7).map(([t, n]) => <button className={e === t ? `active` : ``} onClick={() => h(t)} key={t}><C name={n} /><span>{t}</span></button>)}</nav><div className="advisor-card"><span><C name="sparkle" /></span><b>Meet your AI bookkeeper</b><p>Get insights and automate routine work.</p><button onClick={() => m(`Ledger AI assistant is coming soon`)}>Explore Ledger AI <C name="chevron" size={13} /></button></div><button className="sidebar-help" onClick={() => m(`Support center opened`)}><span className="help-icon">?</span><div><b>Need help?</b><small>Visit support center</small></div><C name="chevron" size={14} /></button></aside><main><header className="topbar"><div className="global-search"><C name="search" /><input value={o} onChange={e => s(e.target.value)} placeholder="Search transactions, invoices, reports…" /><kbd>⌘ K</kbd>{o && <div className="search-results"><span>Search results</span>{g.length ? g.map(([e, t, n]) => <button onClick={() => {
+  }}><div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><i /><i /><i /></span><span>Ledgerly</span></div><button className={`workspace-switcher ${f ? `open` : ``}`} onClick={() => p(!f)}><T initials={session.client.initials} color="blue" small={!0} /><div><b>{session.client.name}</b><small>Business account</small></div><span className="rotate-chevron"><C name="chevron" size={14} /></span></button>{f && <div className="workspace-menu"><span>Switch company</span>{session.clients.map(client => <button className={client.id === session.client.id ? `selected` : ``} onClick={() => selectClient(client.id)} key={client.id}><T initials={client.initials} color="blue" small={!0} /><span><b>{client.name}</b><small>{client.id === session.client.id ? `Current company` : `Business account`}</small></span>{client.id === session.client.id ? <C name="check" size={14} /> : null}</button>)}<button onClick={() => m(`Company creation flow opened`)}><span className="add-company"><C name="plus" size={14} /></span><span><b>Add another company</b><small>Set up a new set of books</small></span></button></div>}<nav><span className="nav-label">WORKSPACE</span>{te.slice(0, 7).map(([t, n]) => <button className={e === t ? `active` : ``} onClick={() => h(t)} key={t}><C name={n} /><span>{t}</span></button>)}<span className="nav-label manage">MANAGE</span>{te.slice(7).map(([t, n]) => <button className={e === t ? `active` : ``} onClick={() => h(t)} key={t}><C name={n} /><span>{t}</span></button>)}</nav><div className="advisor-card"><span><C name="sparkle" /></span><b>Meet your AI bookkeeper</b><p>Get insights and automate routine work.</p><button onClick={() => m(`Ledger AI assistant is coming soon`)}>Explore Ledger AI <C name="chevron" size={13} /></button></div><button className="sidebar-help" onClick={() => m(`Support center opened`)}><span className="help-icon">?</span><div><b>Need help?</b><small>Visit support center</small></div><C name="chevron" size={14} /></button></aside><main><header className="topbar"><div className="global-search"><C name="search" /><input value={o} onChange={e => s(e.target.value)} placeholder="Search transactions, invoices, reports…" /><kbd>⌘ K</kbd>{o && <div className="search-results"><span>Search results</span>{g.length ? g.map(([e, t, n]) => <button onClick={() => {
                 h(n), s(``);
               }} key={e}><span className="search-result-icon"><C name={n === `Invoices` ? `invoice` : n === `Reports` ? `chart` : `arrows`} size={15} /></span><span><b>{e}</b><small>{t}</small></span><C name="chevron" size={13} /></button>) : <p>No results for “{o}”</p>}</div>}</div><div className="top-actions"><div className="top-menu-wrap"><button className={`notification ${c ? `active` : ``}`} onClick={() => {
                 l(!c), d(!1);

@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
+import { ensureBanking } from "./banking.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -83,6 +84,7 @@ export function openDatabase(dbPath) {
   db.exec(SCHEMA);
   seedIfEmpty(db);
   ensureCharts(db);
+  ensureBanking(db);
   return db;
 }
 
