@@ -115,17 +115,27 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       return jsonResponse({ institution: { institution_id: "ins_109508", name: "First Platypus Bank" } });
     }
     if (target.endsWith("/transactions/sync")) {
-      return jsonResponse({
-        added: [
-          { transaction_id: "txn-coffee", account_id: "acc-checking", amount: 6.33, date: "2026-05-12", name: "Starbucks", pending: false },
-          { transaction_id: "txn-deposit", account_id: "acc-checking", amount: -25, date: "2026-05-13", name: "Client deposit", pending: false },
-          { transaction_id: "txn-pending", account_id: "acc-checking", amount: 4, date: "2026-05-14", name: "Pending hold", pending: true },
-        ],
-        modified: [],
-        removed: [],
-        next_cursor: "cursor-1",
-        has_more: false,
-      });
+      calls.syncs = (calls.syncs || 0) + 1;
+      const added = [
+        { transaction_id: "txn-coffee", account_id: "acc-checking", amount: 6.33, date: "2026-05-12", name: "Starbucks", merchant_name: "Starbucks", pending: false },
+        { transaction_id: "txn-coffee", account_id: "acc-checking", amount: 6.33, date: "2026-05-12", name: "Starbucks", merchant_name: "Starbucks", pending: false },
+        { transaction_id: "txn-deposit", account_id: "acc-checking", amount: -25, date: "2026-05-13", name: "Client deposit", merchant_name: "Northstar Client", pending: false },
+        { transaction_id: "txn-pending", account_id: "acc-checking", amount: 4, date: "2026-05-14", name: "Pending hold", pending: true },
+        { transaction_id: "txn-bad-date", account_id: "acc-checking", amount: 9, date: "05/12/2026", name: "Bad date", pending: false },
+      ];
+      if (calls.syncs > 1) {
+        added.push({
+          transaction_id: "txn-deposit-posted",
+          pending_transaction_id: "txn-deposit",
+          account_id: "acc-checking",
+          amount: -30,
+          date: "2026-05-15",
+          name: "Client deposit",
+          merchant_name: "Brightline Labs",
+          pending: false,
+        });
+      }
+      return jsonResponse({ added, modified: [], removed: [], next_cursor: `cursor-${calls.syncs}`, has_more: false });
     }
     return jsonResponse({ error_message: "unexpected sandbox path" });
   };
@@ -197,28 +207,68 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       assert.equal(lines.transactions.every((row) => row.source === "plaid" && row.status === "for_review" && !row.journalEntryId), true);
       const coffee = lines.transactions.find((row) => row.description === "Starbucks");
       const deposit = lines.transactions.find((row) => row.description === "Client deposit");
+      assert.equal(coffee.postedOn, "2026-05-12");
+      assert.equal(coffee.merchantName, "Starbucks");
       assert.equal(coffee.amountCents, -633);
+      assert.equal(coffee.suggestion.code, "6400");
+      assert.equal(coffee.suggestion.name, "Office expenses");
+      assert.equal(coffee.category, "");
+      assert.equal(deposit.postedOn, "2026-05-13");
+      assert.equal(deposit.merchantName, "Northstar Client");
       assert.equal(deposit.amountCents, 2500);
+      assert.equal(deposit.suggestion.code, "4000");
+      assert.equal(deposit.journalEntryId, null);
+      assert.equal(connected.body.connections[0].history[0].imported, 2);
+      assert.equal(connected.body.connections[0].history[0].status, "ok");
       const beforeLedger = await (await olivia.fetch(`${base}/api/ledger`)).json();
       assert.equal(beforeLedger.entries.length, 0);
       assert.equal(beforeLedger.trialBalance.debitsCents, 0);
+      assert.equal(beforeLedger.trialBalance.debitsCents, beforeLedger.trialBalance.creditsCents);
+      assert.equal(beforeLedger.foots, true);
 
       const again = await sendJson(olivia, base, "POST", "/api/plaid/sync", { connectionId: connected.body.connections[0].id });
       seen.push(again.text);
       assert.equal(again.response.status, 200);
       assert.equal(again.body.imported, 0);
+      assert.equal(again.body.connections[0].history[0].imported, 0);
+      assert.equal(again.body.connections[0].status, "connected");
       const afterSecond = await (await olivia.fetch(`${base}/api/transactions`)).json();
       assert.equal(afterSecond.transactions.length, 2);
+      const refreshedDeposit = afterSecond.transactions.find((row) => row.id === deposit.id);
+      assert.equal(refreshedDeposit.amountCents, 3000);
+      assert.equal(refreshedDeposit.postedOn, "2026-05-15");
+      assert.equal(refreshedDeposit.merchantName, "Brightline Labs");
+      assert.equal(refreshedDeposit.status, "for_review");
+      assert.equal(refreshedDeposit.journalEntryId, null);
       const stillEmpty = await (await olivia.fetch(`${base}/api/ledger`)).json();
       assert.equal(stillEmpty.entries.length, 0);
+      assert.equal(stillEmpty.foots, true);
 
       const expense = lines.accounts.find((account) => account.code === "6400");
       const categorized = await sendJson(olivia, base, "POST", `/api/transactions/${coffee.id}/categorize`, { accountId: expense.id });
       assert.equal(categorized.response.status, 200);
       assert.equal(categorized.body.transaction.status, "categorized");
+      assert.equal(categorized.body.transaction.suggestion, null);
       assert.ok(categorized.body.transaction.journalEntryId);
+      assert.equal(categorized.body.entry.debitCents, categorized.body.entry.creditCents);
+      assert.equal(categorized.body.entry.debitCents, 633);
       const posted = await (await olivia.fetch(`${base}/api/ledger`)).json();
       assert.equal(posted.entries.length, 1);
+      assert.equal(posted.foots, true);
+      assert.equal(posted.trialBalance.debitsCents, posted.trialBalance.creditsCents);
+      assert.equal(posted.trialBalance.debitsCents, 633);
+      const reconciled = await sendJson(olivia, base, "POST", "/api/reconciliations", {
+        bankAccountId: coffee.bankAccountId,
+        statementDate: "2026-05-31",
+        statementEnding: "-6.33",
+        transactionIds: [coffee.id],
+      });
+      assert.equal(reconciled.response.status, 201);
+      assert.equal(reconciled.body.reconciliation.status, "complete");
+      const footed = await (await olivia.fetch(`${base}/api/ledger`)).json();
+      assert.equal(footed.entries.length, 1);
+      assert.equal(footed.foots, true);
+      assert.equal(footed.trialBalance.debitsCents, 633);
       const waiting = posted && (await (await olivia.fetch(`${base}/api/transactions`)).json()).transactions.find((row) => row.id === deposit.id);
       assert.equal(waiting.status, "for_review");
       assert.equal(waiting.journalEntryId, null);
@@ -297,9 +347,13 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
 
 test("sandbox copy stays on the banking screen and off the ledger poster", () => {
   const banking = readFileSync(new URL("../src/Banking.jsx", import.meta.url), "utf8");
+  const transactions = readFileSync(new URL("../src/Transactions.jsx", import.meta.url), "utf8");
   const plaid = readFileSync(new URL("./plaid.js", import.meta.url), "utf8");
   assert.match(banking, /Sandbox credentials are not configured/);
   assert.match(banking, /Connect Bank Account/);
+  assert.match(banking, /Sync history/);
+  assert.match(transactions, /Approve category/);
+  assert.match(transactions, /Suggested from the chart/);
   assert.match(banking, /setError\(plaid\?\.notice \|\| "Sandbox credentials are not configured\."\)/);
   assert.match(banking, /disabled=\{pending \|\| !plaid\} onClick=\{connectSandbox\}/);
   assert.doesNotMatch(banking, /disabled=\{!plaid\?\.configured/);

@@ -3,6 +3,7 @@ import { parseCents } from "../shared/money.js";
 import { reconciliationMath } from "../shared/activity.js";
 import { postJournalEntry } from "./ledger.js";
 import { filesForTransactions } from "./documents.js";
+import { suggestedCode } from "./suggest.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS bank_accounts (
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS bank_transactions (
   bank_account_id TEXT NOT NULL REFERENCES bank_accounts(id),
   posted_on TEXT NOT NULL,
   description TEXT NOT NULL,
+  merchant_name TEXT NOT NULL DEFAULT '',
   amount_cents INTEGER NOT NULL CHECK (amount_cents <> 0),
   status TEXT NOT NULL CHECK (status IN ('for_review', 'categorized', 'excluded')),
   category_account_id TEXT REFERENCES accounts(id),
@@ -196,6 +198,10 @@ export function ensureBanking(db) {
       db.exec("PRAGMA foreign_keys = ON");
     }
   }
+  const columns = db.prepare("PRAGMA table_info(bank_transactions)").all();
+  if (!columns.some((column) => column.name === "merchant_name")) {
+    db.exec("ALTER TABLE bank_transactions ADD COLUMN merchant_name TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 function accountFor(db, session, bankAccountId) {
@@ -226,13 +232,24 @@ function transactionRows(db, session) {
   ).all(session.firm_id, session.selected_client_id);
 }
 
-function transactionJson(row, attachments = []) {
+function suggestionFor(row, accounts) {
+  if (row.status !== "for_review") return null;
+  const amountCents = asCents(row.amount_cents);
+  const code = suggestedCode(`${row.description || ""} ${row.merchant_name || ""}`, amountCents);
+  const account = accounts.find((item) => item.code === code);
+  if (!account || account.code === "1000" || account.code === "2100") return null;
+  return { accountId: account.id, code: account.code, name: account.name, label: "Suggested" };
+}
+
+function transactionJson(row, attachments = [], accounts = []) {
   const amountCents = asCents(row.amount_cents);
   return {
     id: row.id,
     postedOn: row.posted_on,
     postedOnLabel: formatEntryDate(row.posted_on),
     description: row.description,
+    merchantName: row.merchant_name || "",
+    suggestion: suggestionFor(row, accounts),
     amountCents,
     type: amountCents < 0 ? "expense" : "income",
     status: row.status,
@@ -253,7 +270,10 @@ function transactionJson(row, attachments = []) {
 
 function mapTransactions(db, session) {
   const files = filesForTransactions(db, session);
-  return transactionRows(db, session).map((row) => transactionJson(row, files.get(row.id) || []));
+  const accounts = db.prepare(
+    "SELECT id, code, name FROM accounts WHERE firm_id = ? AND client_id = ?",
+  ).all(session.firm_id, session.selected_client_id);
+  return transactionRows(db, session).map((row) => transactionJson(row, files.get(row.id) || [], accounts));
 }
 
 function chartJson(db, session) {
@@ -348,21 +368,22 @@ export function createBankAccount(db, session, input) {
   return { status: 201, payload: listBanking(db, session).payload };
 }
 
-export function addStatementLine(db, session, { bankAccountId, postedOn, description, amountCents, source }) {
+export function addStatementLine(db, session, { bankAccountId, postedOn, description, amountCents, source, merchantName = "" }) {
   const account = accountFor(db, session, bankAccountId);
   if (!account) return fail(400, "Choose an account from this client's Banking screen.");
   const date = parseDate(postedOn);
   if (!date) return fail(400, "Enter a date as YYYY-MM-DD.");
   const text = typeof description === "string" ? description.trim() : "";
   if (!text || text.length > 120) return fail(400, "Enter a description.");
+  const merchant = typeof merchantName === "string" ? merchantName.trim().slice(0, 80) : "";
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO bank_transactions (
-      id, firm_id, client_id, bank_account_id, posted_on, description, amount_cents, status,
+      id, firm_id, client_id, bank_account_id, posted_on, description, merchant_name, amount_cents, status,
       category_account_id, note, journal_entry_id, cleared_reconciliation_id, source, created_by, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'for_review', NULL, '', NULL, NULL, ?, ?, ?)`,
-  ).run(id, session.firm_id, session.selected_client_id, account.id, date, text, amountCents, source, session.user_id, now);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'for_review', NULL, '', NULL, NULL, ?, ?, ?)`,
+  ).run(id, session.firm_id, session.selected_client_id, account.id, date, text, merchant, amountCents, source, session.user_id, now);
   return { id };
 }
 

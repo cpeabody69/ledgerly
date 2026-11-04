@@ -219,8 +219,8 @@ export function Transactions({ clientId, initialTab = "all", initialPeriod = PER
                   <tr key={row.id} className={selected.includes(row.id) ? "selected-row" : ""}>
                     <td><input type="checkbox" aria-label={`Select ${row.description}`} checked={selected.includes(row.id)} onChange={() => setSelected((current) => current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id])} /></td>
                     <td>{row.postedOnLabel}</td>
-                    <td><div className="table-primary"><span className={`transaction-icon ${row.type}`}><Icon name={row.type === "income" ? "down" : "up"} /></span><span><b>{row.description}</b><small>{row.journalReference || "No journal yet"}</small></span></div></td>
-                    <td>{row.category ? <span className="badge">{row.category}</span> : "—"}</td>
+                    <td><div className="table-primary"><span className={`transaction-icon ${row.type}`}><Icon name={row.type === "income" ? "down" : "up"} /></span><span><b>{row.description}</b><small>{row.merchantName ? `${row.merchantName} · ${row.journalReference || "Not posted"}` : (row.journalReference || "No journal yet")}</small></span></div></td>
+                    <td>{row.category ? <span className="badge">{row.category}</span> : row.suggestion ? <span className="badge amber">Suggested · {row.suggestion.code} {row.suggestion.name}</span> : "—"}</td>
                     <td>{row.accountName}</td>
                     <td><strong className={row.type}>{formatSigned(row.amountCents)}</strong></td>
                     <td><span className={`badge ${badgeTone(row.status)}`}>{row.statusLabel}</span></td>
@@ -260,11 +260,18 @@ export function Transactions({ clientId, initialTab = "all", initialPeriod = PER
   );
 }
 
+function sourceLabel(source) {
+  if (source === "plaid") return "Sandbox bank";
+  if (source === "csv") return "Imported from a CSV";
+  return "Entered in Ledgerly";
+}
+
 function TransactionDrawer({ transaction, accounts, onClose, onCategorize, onExclude }) {
-  const [accountId, setAccountId] = useState(transaction.categoryAccountId || "");
+  const [accountId, setAccountId] = useState(transaction.categoryAccountId || transaction.suggestion?.accountId || "");
   const [note, setNote] = useState(transaction.note || "");
   const [pending, setPending] = useState(false);
   const choices = accounts.filter((account) => account.code !== (transaction.accountKind === "card" ? "2100" : "1000"));
+  const approving = transaction.status === "for_review" && transaction.suggestion && accountId === transaction.suggestion.accountId;
 
   async function save(event) {
     event.preventDefault();
@@ -297,7 +304,8 @@ function TransactionDrawer({ transaction, accounts, onClose, onCategorize, onExc
             <h3>Statement line</h3>
             <dl>
               <div><dt>Account</dt><dd>{transaction.accountName}</dd></div>
-              <div><dt>Source</dt><dd>{transaction.source === "csv" ? "Imported from a CSV" : "Entered in Ledgerly"}</dd></div>
+              <div><dt>Merchant</dt><dd>{transaction.merchantName || "—"}</dd></div>
+              <div><dt>Source</dt><dd>{sourceLabel(transaction.source)}</dd></div>
               <div><dt>Journal</dt><dd>{transaction.journalReference || "Not posted"}</dd></div>
             </dl>
           </div>
@@ -309,6 +317,7 @@ function TransactionDrawer({ transaction, accounts, onClose, onCategorize, onExc
           </div>
           <div className="drawer-section">
             <h3>Proposed coding</h3>
+            {transaction.suggestion && transaction.status === "for_review" ? <p>Suggested from the chart. Nothing is posted until you approve it, or save a different account.</p> : null}
             <label className="field">
               <span>Category</span>
               <select value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
@@ -323,7 +332,7 @@ function TransactionDrawer({ transaction, accounts, onClose, onCategorize, onExc
           </div>
           <div className="drawer-footer">
             <Button variant="secondary" disabled={pending || transaction.cleared} onClick={() => onExclude(transaction, note)}>Exclude</Button>
-            <Button type="submit" disabled={pending || transaction.cleared}>{pending ? "Posting…" : "Save changes"}</Button>
+            <Button type="submit" disabled={pending || transaction.cleared}>{pending ? "Posting…" : approving ? "Approve category" : "Save changes"}</Button>
           </div>
         </form>
       </aside>

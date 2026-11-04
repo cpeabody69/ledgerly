@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS plaid_imported (
   bank_transaction_id TEXT NOT NULL REFERENCES bank_transactions(id),
   PRIMARY KEY (firm_id, plaid_transaction_id)
 );
+
+CREATE TABLE IF NOT EXISTS plaid_syncs (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  client_id TEXT NOT NULL REFERENCES clients(id),
+  plaid_item_id TEXT NOT NULL REFERENCES plaid_items(id),
+  imported_count INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+  error_message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
 `;
 
 function fail(status, error) {
@@ -163,6 +174,12 @@ function loadConnections(db, session) {
      WHERE plaid_accounts.firm_id = ? AND plaid_accounts.client_id = ?
      ORDER BY bank_accounts.name`,
   ).all(session.firm_id, session.selected_client_id);
+  const historyRows = db.prepare(
+    `SELECT id, plaid_item_id, imported_count, status, error_message, created_at
+     FROM plaid_syncs
+     WHERE firm_id = ? AND client_id = ?
+     ORDER BY created_at DESC, rowid DESC`,
+  ).all(session.firm_id, session.selected_client_id);
   return items.map((item) => ({
     id: item.id,
     institutionName: item.institution_name,
@@ -170,6 +187,14 @@ function loadConnections(db, session) {
     statusLabel: item.status === "connected" ? "Sandbox connected" : item.status === "error" ? "Sandbox error" : "Sandbox disconnected",
     error: item.error_message,
     updatedAt: item.updated_at,
+    history: historyRows.filter((row) => row.plaid_item_id === item.id).slice(0, 6).map((row) => ({
+      id: row.id,
+      imported: Number(row.imported_count),
+      status: row.status,
+      error: row.error_message,
+      createdAt: row.created_at,
+      createdLabel: syncLabel(row.created_at),
+    })),
     accounts: accounts.filter((account) => account.plaid_item_id === item.id).map((account) => ({
       id: account.id,
       name: account.name,
@@ -282,35 +307,77 @@ function rememberAccounts(db, session, itemRowId, accounts) {
   return map;
 }
 
+function cleanText(value, max) {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, max) : "";
+}
+
+function syncedFields(txn) {
+  const postedOn = typeof txn.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(txn.date) ? txn.date : "";
+  const merchantName = cleanText(txn.merchant_name, 80);
+  const description = cleanText(txn.name, 120) || merchantName;
+  return { postedOn, merchantName, description, amountCents: ledgerCentsFromPlaid(txn.amount) };
+}
+
+function findImported(db, session, plaidId) {
+  if (typeof plaidId !== "string" || !plaidId) return null;
+  return db.prepare(
+    `SELECT bank_transactions.id, bank_transactions.status, bank_transactions.journal_entry_id, bank_transactions.cleared_reconciliation_id
+     FROM plaid_imported
+     JOIN bank_transactions ON bank_transactions.id = plaid_imported.bank_transaction_id
+       AND bank_transactions.firm_id = plaid_imported.firm_id
+     WHERE plaid_imported.firm_id = ? AND plaid_imported.plaid_transaction_id = ?`,
+  ).get(session.firm_id, plaidId) || null;
+}
+
+function rememberImport(db, session, plaidId, bankTransactionId) {
+  db.prepare(
+    "INSERT OR IGNORE INTO plaid_imported (firm_id, plaid_transaction_id, bank_transaction_id) VALUES (?, ?, ?)",
+  ).run(session.firm_id, plaidId, bankTransactionId);
+}
+
+function refreshOpenLine(db, session, known, fields) {
+  if (!known || known.status !== "for_review" || known.cleared_reconciliation_id || known.journal_entry_id) return;
+  if (fields.amountCents === null || !fields.description || !fields.postedOn) return;
+  db.prepare(
+    `UPDATE bank_transactions
+     SET description = ?, merchant_name = ?, amount_cents = ?, posted_on = ?
+     WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'for_review' AND journal_entry_id IS NULL AND cleared_reconciliation_id IS NULL`,
+  ).run(fields.description, fields.merchantName, fields.amountCents, fields.postedOn, known.id, session.firm_id, session.selected_client_id);
+}
+
 function applyPage(db, session, accountMap, page) {
   let imported = 0;
   for (const txn of page.added || []) {
     if (txn.pending) continue;
     const plaidId = typeof txn.transaction_id === "string" ? txn.transaction_id : "";
     if (!plaidId) continue;
-    const known = db.prepare(
-      "SELECT bank_transaction_id FROM plaid_imported WHERE firm_id = ? AND plaid_transaction_id = ?",
-    ).get(session.firm_id, plaidId);
-    if (known) continue;
+    const fields = syncedFields(txn);
+    const existing = findImported(db, session, plaidId);
+    if (existing) {
+      refreshOpenLine(db, session, existing, fields);
+      continue;
+    }
+    const prior = findImported(db, session, txn.pending_transaction_id);
+    if (prior) {
+      refreshOpenLine(db, session, prior, fields);
+      rememberImport(db, session, plaidId, prior.id);
+      continue;
+    }
     const bankAccountId = accountMap.get(txn.account_id);
-    if (!bankAccountId) continue;
-    const amountCents = ledgerCentsFromPlaid(txn.amount);
-    if (amountCents === null) continue;
-    const postedOn = typeof txn.date === "string" ? txn.date : "";
-    const description = String(txn.merchant_name || txn.name || "Sandbox transaction").trim().slice(0, 120);
+    if (!bankAccountId || fields.amountCents === null || !fields.description || !fields.postedOn) continue;
     db.exec("BEGIN");
     try {
       const inserted = addStatementLine(db, session, {
         bankAccountId,
-        postedOn,
-        description,
-        amountCents,
+        postedOn: fields.postedOn,
+        description: fields.description,
+        merchantName: fields.merchantName,
+        amountCents: fields.amountCents,
         source: "plaid",
       });
       if (inserted.error) throw Object.assign(new Error(inserted.error), { status: inserted.status });
-      db.prepare(
-        "INSERT INTO plaid_imported (firm_id, plaid_transaction_id, bank_transaction_id) VALUES (?, ?, ?)",
-      ).run(session.firm_id, plaidId, inserted.id);
+      rememberImport(db, session, plaidId, inserted.id);
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -320,28 +387,31 @@ function applyPage(db, session, accountMap, page) {
   }
   for (const txn of page.modified || []) {
     if (txn.pending) continue;
-    const plaidId = typeof txn.transaction_id === "string" ? txn.transaction_id : "";
-    const known = plaidId
-      ? db.prepare(
-        `SELECT bank_transactions.id, bank_transactions.status, bank_transactions.cleared_reconciliation_id
-         FROM plaid_imported
-         JOIN bank_transactions ON bank_transactions.id = plaid_imported.bank_transaction_id
-           AND bank_transactions.firm_id = plaid_imported.firm_id
-         WHERE plaid_imported.firm_id = ? AND plaid_imported.plaid_transaction_id = ?`,
-      ).get(session.firm_id, plaidId)
-      : null;
-    if (!known || known.status !== "for_review" || known.cleared_reconciliation_id) continue;
-    const amountCents = ledgerCentsFromPlaid(txn.amount);
-    const description = String(txn.merchant_name || txn.name || "").trim().slice(0, 120);
-    const postedOn = typeof txn.date === "string" ? txn.date : "";
-    if (amountCents === null || !description || !/^\d{4}-\d{2}-\d{2}$/.test(postedOn)) continue;
+    refreshOpenLine(db, session, findImported(db, session, txn.transaction_id), syncedFields(txn));
+  }
+  for (const txn of page.removed || []) {
+    const known = findImported(db, session, txn.transaction_id);
+    if (!known || known.status !== "for_review" || known.journal_entry_id || known.cleared_reconciliation_id) continue;
+    db.prepare("DELETE FROM plaid_imported WHERE firm_id = ? AND bank_transaction_id = ?").run(session.firm_id, known.id);
     db.prepare(
-      `UPDATE bank_transactions
-       SET description = ?, amount_cents = ?, posted_on = ?
-       WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'for_review' AND cleared_reconciliation_id IS NULL`,
-    ).run(description, amountCents, postedOn, known.id, session.firm_id, session.selected_client_id);
+      `DELETE FROM bank_transactions
+       WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'for_review' AND journal_entry_id IS NULL AND cleared_reconciliation_id IS NULL`,
+    ).run(known.id, session.firm_id, session.selected_client_id);
   }
   return imported;
+}
+
+function recordSync(db, session, itemId, imported, status, errorMessage = "") {
+  db.prepare(
+    `INSERT INTO plaid_syncs (
+      id, firm_id, client_id, plaid_item_id, imported_count, status, error_message, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(randomUUID(), session.firm_id, session.selected_client_id, itemId, imported, status, String(errorMessage || "").slice(0, 200), new Date().toISOString());
+}
+
+function syncLabel(value) {
+  if (typeof value !== "string" || value.length < 16) return "";
+  return `${value.slice(0, 10)} ${value.slice(11, 16)} UTC`;
 }
 
 async function pullTransactions(db, session, item, accountMap) {
@@ -419,11 +489,14 @@ export async function exchangePublicToken(db, session, input) {
       db.prepare(
         "UPDATE plaid_items SET sync_cursor = ?, status = 'connected', error_message = '', updated_at = ? WHERE id = ? AND firm_id = ?",
       ).run(pulled.cursor, new Date().toISOString(), item.id, session.firm_id);
+      recordSync(db, session, item.id, pulled.imported, "ok");
       audit(db, session, "plaid.connected", item.id);
     } catch (syncError) {
+      const message = String(syncError.message || "Sandbox sync failed.").slice(0, 200);
       db.prepare(
         "UPDATE plaid_items SET status = 'error', error_message = ?, updated_at = ? WHERE id = ? AND firm_id = ?",
-      ).run(String(syncError.message || "Sandbox sync failed.").slice(0, 200), new Date().toISOString(), item.id, session.firm_id);
+      ).run(message, new Date().toISOString(), item.id, session.firm_id);
+      recordSync(db, session, item.id, 0, "error", message);
     }
     const payload = readPlaid(db, session).payload;
     return { status: 200, payload };
@@ -449,14 +522,17 @@ export async function syncPlaid(db, session, input) {
     db.prepare(
       "UPDATE plaid_items SET sync_cursor = ?, status = 'connected', error_message = '', updated_at = ? WHERE id = ? AND firm_id = ? AND client_id = ?",
     ).run(pulled.cursor, new Date().toISOString(), item.id, session.firm_id, session.selected_client_id);
+    recordSync(db, session, item.id, pulled.imported, "ok");
     audit(db, session, "plaid.synced", item.id);
     const payload = readPlaid(db, session).payload;
     payload.imported = pulled.imported;
     return { status: 200, payload };
   } catch (requestError) {
+    const message = String(requestError.message || "Sandbox sync failed.").slice(0, 200);
     db.prepare(
       "UPDATE plaid_items SET status = 'error', error_message = ?, updated_at = ? WHERE id = ? AND firm_id = ? AND client_id = ?",
-    ).run(String(requestError.message || "Sandbox sync failed.").slice(0, 200), new Date().toISOString(), item.id, session.firm_id, session.selected_client_id);
+    ).run(message, new Date().toISOString(), item.id, session.firm_id, session.selected_client_id);
+    recordSync(db, session, item.id, 0, "error", message);
     const payload = readPlaid(db, session).payload;
     return { status: requestError.status || 502, error: requestError.message, payload };
   }

@@ -277,6 +277,12 @@ export function Banking({ clientId }) {
               </div>
             </div>
             {connection.error ? <p className="form-error" role="alert">{connection.error}</p> : null}
+            <div className="plaid-history" aria-label="Sync history">
+              <b>Sync history</b>
+              {connection.history?.length ? connection.history.map((row) => (
+                <p key={row.id}>{row.createdLabel} · {row.status === "ok" ? `${row.imported} new` : "Error"}{row.error ? ` · ${row.error}` : ""}</p>
+              )) : <p>No syncs yet.</p>}
+            </div>
             <div className="plaid-accounts">
               {connection.accounts.map((account) => (
                 <div key={account.id}>
@@ -323,7 +329,7 @@ export function Banking({ clientId }) {
                 {lines.map((line) => (
                   <tr key={line.id}>
                     <td>{line.postedOnLabel}</td>
-                    <td><b>{line.description}</b></td>
+                    <td><b>{line.description}</b>{line.merchantName ? <small>{line.merchantName}</small> : null}</td>
                     <td>{formatSigned(line.amountCents)}</td>
                     <td>{line.cleared ? "Cleared" : line.statusLabel}</td>
                   </tr>
