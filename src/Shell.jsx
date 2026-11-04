@@ -1,7 +1,7 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
 // Accounting is the client's books. Transactions and Banking are this client's statement activity.
-// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses. Time is this firm's staff, work, and hours.
+// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses. Time is this firm's staff, work, and hours. Tax readiness is a checklist read from this client's books, plus a status a person records.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { PERIODS } from "../shared/activity.js";
 import { formatMoney } from "../shared/money.js";
@@ -12,6 +12,7 @@ import { ExpenseModal, Expenses, ReceiptSetting, UpcomingBills } from "./Expense
 import { InvoiceModal, Invoices, OutstandingInvoices } from "./Invoices.jsx";
 import { ReceiptModal } from "./Receipt.jsx";
 import { Reports } from "./Reports.jsx";
+import { Tax } from "./Tax.jsx";
 import { Time } from "./Time.jsx";
 import { Transactions } from "./Transactions.jsx";
 
@@ -52,7 +53,7 @@ function C({
 }) {
   return <svg width={t} height={t} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ee[e]}</svg>;
 }
-var te = [[`Dashboard`, `grid`], [`Transactions`, `arrows`], [`Banking`, `bank`], [`Accounting`, `book`], [`Invoices`, `invoice`], [`Expenses`, `card`], [`Reports`, `chart`], [`Time`, `clock`], [`Clients`, `users`], [`Settings`, `settings`]];
+var te = [[`Dashboard`, `grid`], [`Transactions`, `arrows`], [`Banking`, `bank`], [`Accounting`, `book`], [`Invoices`, `invoice`], [`Expenses`, `card`], [`Reports`, `chart`], [`Tax`, `check`], [`Time`, `clock`], [`Clients`, `users`], [`Settings`, `settings`]];
 function Cmp_w({
   children: e,
   variant: t = `primary`,
@@ -434,7 +435,7 @@ function Te({ session, onSession }) {
       return !0;
     },
     g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
-    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Invoices key={`${session.client?.id}:${invoiceVersion}`} clientId={session.client?.id} onCreate={() => r(`invoice`)} /> : e === `Expenses` ? <Expenses key={`${session.client?.id}:${expenseVersion}`} clientId={session.client?.id} onCreate={() => r(`expense`)} /> : e === `Time` ? <Time key={session.client?.id} clientId={session.client?.id} clients={session.clients} onSession={onSession} onOpenInvoices={() => h(`Invoices`)} /> : e === `Clients` ? <Clients selectedClientId={session.client?.id} onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
+    _ = e === `Dashboard` ? <Cmp_de /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Invoices key={`${session.client?.id}:${invoiceVersion}`} clientId={session.client?.id} onCreate={() => r(`invoice`)} /> : e === `Expenses` ? <Expenses key={`${session.client?.id}:${expenseVersion}`} clientId={session.client?.id} onCreate={() => r(`expense`)} /> : e === `Time` ? <Time key={session.client?.id} clientId={session.client?.id} clients={session.clients} onSession={onSession} onOpenInvoices={() => h(`Invoices`)} /> : e === `Tax` ? <Tax key={session.client?.id} clientId={session.client?.id} /> : e === `Clients` ? <Clients selectedClientId={session.client?.id} onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,
     notify: m,

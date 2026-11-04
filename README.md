@@ -84,6 +84,10 @@ Each firm user has a staff record in addition to the phase 1 role. Time is enter
 
 A client signs in with their own account. Brightline Labs uses `casey@brightline.example` / `ledgerly-client`. Cedar & Pine Goods uses `rowan@cedar.example` / `ledgerly-client`. The page is the same Ledgerly sign-in. After sign-in the client sees that one client’s requests, files, and invoices. Submitting a file on an open request stores it and marks the request received. The firm’s open-request list updates when that person signs back in. Journal, statement, and other-client routes answer 404. The client does not post journal entries, send invoices, or open the firm sidebar.
 
+## Tax readiness
+
+The Tax screen reads the open client’s books for the current season. The checklist counts uncategorized transactions, reconciliations left unfinished after a completed reconciliation, open document requests, and invoices that are still sent or partially paid. A person sets the workflow to not started, gathering, in review, or blocked, and can assign it and say what is blocked. Each change records that firm user. Notes and workpapers are stored on the season. The screen does not compute tax or send anything to a tax authority.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:

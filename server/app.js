@@ -11,6 +11,7 @@ import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 import { readStatements } from "./statements.js";
+import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } from "./tax.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -518,6 +519,62 @@ async function handle(req, res, db, options) {
       return;
     }
     sendResult(res, completeReconciliation(db, session, await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/tax" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readTax(db, session, url.searchParams.get("clientId"));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/tax" && req.method === "PATCH") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = updateTax(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/tax/notes" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = addTaxNote(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/tax/workpapers" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = storeTaxWorkpaper(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const workpaperMatch = pathname.match(/^\/api\/tax\/workpapers\/([^/]+)$/);
+  if (workpaperMatch && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const file = readTaxWorkpaper(db, session, decodeURIComponent(workpaperMatch[1]));
+    if (!file) send(res, 404, { error: "File not found." });
+    else sendBytes(res, file);
     return;
   }
 
