@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS ap_bills (
   invoice_number TEXT NOT NULL,
   bill_date TEXT NOT NULL,
   due_date TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('draft', 'awaiting_approval', 'posted', 'void')),
+  status TEXT NOT NULL CHECK (status IN ('draft', 'awaiting_approval', 'approved', 'rejected', 'posted', 'void')),
   document_id TEXT,
   notes TEXT NOT NULL DEFAULT '',
   total_cents INTEGER NOT NULL CHECK (total_cents > 0),
@@ -59,6 +59,39 @@ CREATE TABLE IF NOT EXISTS ap_bill_lines (
 );
 
 CREATE INDEX IF NOT EXISTS ap_bill_lines_by_bill ON ap_bill_lines (firm_id, bill_id, position);
+
+CREATE TABLE IF NOT EXISTS ap_approvals (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  client_id TEXT NOT NULL REFERENCES clients(id),
+  bill_id TEXT NOT NULL REFERENCES ap_bills(id),
+  action TEXT NOT NULL CHECK (action IN ('submitted', 'approved', 'rejected', 'posted')),
+  actor_user_id TEXT NOT NULL REFERENCES users(id),
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ap_approvals_by_bill ON ap_approvals (firm_id, bill_id, created_at);
+
+CREATE TABLE IF NOT EXISTS ap_payments (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  client_id TEXT NOT NULL REFERENCES clients(id),
+  vendor_id TEXT NOT NULL REFERENCES ap_vendors(id),
+  bill_id TEXT NOT NULL REFERENCES ap_bills(id),
+  paid_on TEXT NOT NULL,
+  reference TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  account_id TEXT NOT NULL,
+  journal_entry_id TEXT,
+  void_entry_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('recorded', 'void')),
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ap_payments_by_client ON ap_payments (firm_id, client_id, paid_on);
+CREATE INDEX IF NOT EXISTS ap_payments_by_bill ON ap_payments (firm_id, bill_id);
 `;
 
 const MONTHS = [
@@ -68,9 +101,18 @@ const MONTHS = [
 
 const STATUS_LABEL = {
   draft: "Draft",
-  awaiting_approval: "Awaiting approval",
+  awaiting_approval: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
   posted: "Posted",
   void: "Void",
+};
+
+const DECISION_LABEL = {
+  submitted: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+  posted: "Posted",
 };
 
 function fail(status, error, payload) {
@@ -88,8 +130,87 @@ function audit(db, session, action, entityType, entityId) {
   ).run(randomUUID(), session.firm_id, session.user_id, action, session.selected_client_id, entityType, entityId, new Date().toISOString());
 }
 
+function actorRole(db, session) {
+  return db.prepare("SELECT role, name FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
+}
+
+function canApproveRole(role) {
+  return role === "owner" || role === "manager";
+}
+
+function requireApprover(db, session, action) {
+  const actor = actorRole(db, session);
+  if (!actor || !canApproveRole(actor.role)) {
+    return fail(403, `Only an owner or a manager can ${action} a bill.`);
+  }
+  return null;
+}
+
+function formatWhen(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour = hours % 12 || 12;
+  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}, ${hour}:${minutes} ${suffix}`;
+}
+
+function recordDecision(db, session, billId, action, note = "") {
+  const id = randomUUID();
+  const createdAt = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO ap_approvals (
+      id, firm_id, client_id, bill_id, action, actor_user_id, note, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, session.firm_id, session.selected_client_id, billId, action, session.user_id, note, createdAt);
+}
+
 export function ensurePayables(db) {
   db.exec(SCHEMA);
+  widenBillStatus(db);
+}
+
+function widenBillStatus(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ap_bills'").get();
+  if (!row || String(row.sql).includes("'approved'")) return;
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      CREATE TABLE ap_bills_next (
+        id TEXT PRIMARY KEY,
+        firm_id TEXT NOT NULL REFERENCES firms(id),
+        client_id TEXT NOT NULL REFERENCES clients(id),
+        vendor_id TEXT NOT NULL REFERENCES ap_vendors(id),
+        invoice_number TEXT NOT NULL,
+        bill_date TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('draft', 'awaiting_approval', 'approved', 'rejected', 'posted', 'void')),
+        document_id TEXT,
+        notes TEXT NOT NULL DEFAULT '',
+        total_cents INTEGER NOT NULL CHECK (total_cents > 0),
+        tax_cents INTEGER NOT NULL DEFAULT 0 CHECK (tax_cents >= 0),
+        journal_entry_id TEXT,
+        void_entry_id TEXT,
+        created_by TEXT NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO ap_bills_next SELECT * FROM ap_bills;
+      DROP TABLE ap_bills;
+      ALTER TABLE ap_bills_next RENAME TO ap_bills;
+      CREATE INDEX IF NOT EXISTS ap_bills_by_client ON ap_bills (firm_id, client_id, bill_date);
+      CREATE INDEX IF NOT EXISTS ap_bills_by_vendor ON ap_bills (firm_id, vendor_id);
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    db.exec("PRAGMA foreign_keys = ON");
+    throw error;
+  }
+  db.exec("PRAGMA foreign_keys = ON");
 }
 
 function todayIso() {
@@ -255,12 +376,18 @@ function billJson(row, lines) {
     journalReference: row.journal_reference || "",
     voidEntryId: row.void_entry_id,
     lines: lines.map(lineJson),
+    approvals: [],
+    paidCents: 0,
+    paid: formatMoney(0),
+    openCents: 0,
+    open: formatMoney(0),
   };
 }
 
-function vendorJson(row, bills) {
-  const posted = bills.filter((bill) => bill.vendorId === row.id && bill.status === "posted");
-  const outstandingCents = posted.reduce((sum, bill) => addCents(sum, bill.totalCents), 0);
+function vendorJson(row, bills, payments) {
+  const outstandingCents = bills
+    .filter((bill) => bill.vendorId === row.id)
+    .reduce((sum, bill) => addCents(sum, bill.openCents), 0);
   return {
     id: row.id,
     name: row.name,
@@ -285,8 +412,10 @@ function vendorJson(row, bills) {
       statusLabel: bill.statusLabel,
       total: bill.total,
       totalCents: bill.totalCents,
+      open: bill.open,
+      openCents: bill.openCents,
     })),
-    payments: [],
+    payments: payments.filter((payment) => payment.vendorId === row.id),
   };
 }
 
@@ -295,16 +424,120 @@ function moneyBucket(rows) {
   return { count: rows.length, cents, amount: formatMoney(cents) };
 }
 
+function balanceBucket(rows) {
+  const open = rows.filter((bill) => bill.openCents > 0);
+  const cents = open.reduce((sum, bill) => addCents(sum, bill.openCents), 0);
+  return { count: open.length, cents, amount: formatMoney(cents) };
+}
+
 function dashboardFor(bills, today) {
   const weekEnd = addDays(today, 6);
-  const posted = bills.filter((bill) => bill.status === "posted");
+  const open = bills.filter((bill) => bill.status === "posted" && bill.openCents > 0);
   return {
     asOf: today,
-    outstanding: moneyBucket(posted),
-    dueThisWeek: moneyBucket(posted.filter((bill) => bill.dueDate >= today && bill.dueDate <= weekEnd)),
-    overdue: moneyBucket(posted.filter((bill) => bill.dueDate < today)),
+    outstanding: balanceBucket(open),
+    dueThisWeek: balanceBucket(open.filter((bill) => bill.dueDate >= today && bill.dueDate <= weekEnd)),
+    overdue: balanceBucket(open.filter((bill) => bill.dueDate < today)),
     awaitingApproval: moneyBucket(bills.filter((bill) => bill.status === "awaiting_approval")),
   };
+}
+
+function loadApprovals(db, session) {
+  return db.prepare(
+    `SELECT ap_approvals.*, users.name AS actor_name
+     FROM ap_approvals
+     JOIN users ON users.id = ap_approvals.actor_user_id AND users.firm_id = ap_approvals.firm_id
+     WHERE ap_approvals.firm_id = ? AND ap_approvals.client_id = ?
+     ORDER BY ap_approvals.created_at, ap_approvals.id`,
+  ).all(session.firm_id, session.selected_client_id);
+}
+
+function approvalJson(row) {
+  return {
+    id: row.id,
+    billId: row.bill_id,
+    action: row.action,
+    actionLabel: DECISION_LABEL[row.action] || row.action,
+    actorName: row.actor_name,
+    note: row.note || "",
+    createdAt: row.created_at,
+    createdAtLabel: formatWhen(row.created_at),
+  };
+}
+
+function loadPayments(db, session) {
+  return db.prepare(
+    `SELECT ap_payments.*, accounts.code AS account_code, accounts.name AS account_name,
+            ap_vendors.name AS vendor_name, ap_bills.invoice_number,
+            journal_entries.reference AS journal_reference, users.name AS actor_name
+     FROM ap_payments
+     JOIN accounts ON accounts.id = ap_payments.account_id
+       AND accounts.firm_id = ap_payments.firm_id
+       AND accounts.client_id = ap_payments.client_id
+     JOIN ap_vendors ON ap_vendors.id = ap_payments.vendor_id
+       AND ap_vendors.firm_id = ap_payments.firm_id
+       AND ap_vendors.client_id = ap_payments.client_id
+     JOIN ap_bills ON ap_bills.id = ap_payments.bill_id
+       AND ap_bills.firm_id = ap_payments.firm_id
+       AND ap_bills.client_id = ap_payments.client_id
+     JOIN users ON users.id = ap_payments.created_by AND users.firm_id = ap_payments.firm_id
+     LEFT JOIN journal_entries ON journal_entries.id = ap_payments.journal_entry_id
+       AND journal_entries.firm_id = ap_payments.firm_id
+       AND journal_entries.client_id = ap_payments.client_id
+     WHERE ap_payments.firm_id = ? AND ap_payments.client_id = ?
+     ORDER BY ap_payments.paid_on DESC, ap_payments.created_at DESC`,
+  ).all(session.firm_id, session.selected_client_id);
+}
+
+function paymentJson(row) {
+  const amountCents = asCents(row.amount_cents);
+  return {
+    id: row.id,
+    vendorId: row.vendor_id,
+    vendorName: row.vendor_name,
+    billId: row.bill_id,
+    invoiceNumber: row.invoice_number,
+    paidOn: row.paid_on,
+    paidOnLabel: formatDate(row.paid_on),
+    reference: row.reference,
+    amountCents,
+    amount: formatMoney(amountCents),
+    accountId: row.account_id,
+    accountCode: row.account_code,
+    accountName: row.account_name,
+    status: row.status,
+    statusLabel: row.status === "void" ? "Void" : "Recorded",
+    actorName: row.actor_name,
+    journalEntryId: row.journal_entry_id,
+    journalReference: row.journal_reference || "",
+    voidEntryId: row.void_entry_id,
+    createdAt: row.created_at,
+    createdAtLabel: formatWhen(row.created_at),
+  };
+}
+
+function cashChoices(db, session) {
+  const rows = db.prepare(
+    `SELECT id, code, name FROM accounts
+     WHERE firm_id = ? AND client_id = ? AND cash = 1
+     ORDER BY code`,
+  ).all(session.firm_id, session.selected_client_id);
+  const seen = new Set(rows.map((row) => row.id));
+  const banks = db.prepare(
+    `SELECT accounts.id, accounts.code, bank_accounts.name
+     FROM bank_accounts
+     JOIN accounts ON accounts.firm_id = bank_accounts.firm_id
+       AND accounts.client_id = bank_accounts.client_id
+       AND accounts.code = bank_accounts.ledger_code
+     WHERE bank_accounts.firm_id = ? AND bank_accounts.client_id = ? AND bank_accounts.kind = 'bank'
+     ORDER BY bank_accounts.name`,
+  ).all(session.firm_id, session.selected_client_id);
+  for (const bank of banks) {
+    if (seen.has(bank.id)) continue;
+    seen.add(bank.id);
+    rows.push({ id: bank.id, code: bank.code, name: bank.name });
+  }
+  return rows.map((row) => ({ id: row.id, code: row.code, name: row.name }));
 }
 
 function books(db, session) {
@@ -319,6 +552,28 @@ function books(db, session) {
     byBill.set(line.bill_id, list);
   }
   const bills = billRows.map((row) => billJson(row, byBill.get(row.id) || []));
+  const approvals = loadApprovals(db, session);
+  const payments = loadPayments(db, session).map(paymentJson);
+  const approvalsByBill = new Map();
+  for (const approval of approvals) {
+    const list = approvalsByBill.get(approval.bill_id) || [];
+    list.push(approvalJson(approval));
+    approvalsByBill.set(approval.bill_id, list);
+  }
+  const paidByBill = new Map();
+  for (const payment of payments) {
+    if (payment.status !== "recorded") continue;
+    paidByBill.set(payment.billId, addCents(paidByBill.get(payment.billId) || 0, payment.amountCents));
+  }
+  for (const bill of bills) {
+    const paidCents = paidByBill.get(bill.id) || 0;
+    bill.approvals = approvalsByBill.get(bill.id) || [];
+    bill.paidCents = paidCents;
+    bill.paid = formatMoney(paidCents);
+    bill.openCents = bill.status === "posted" ? bill.totalCents - paidCents : 0;
+    bill.open = formatMoney(bill.openCents);
+  }
+  const actor = actorRole(db, session);
   return {
     accounts: accounts.map((account) => ({
       id: account.id,
@@ -326,8 +581,11 @@ function books(db, session) {
       name: account.name,
       type: account.type,
     })),
+    cashAccounts: cashChoices(db, session),
+    canApprove: Boolean(actor && canApproveRole(actor.role)),
     bills,
-    vendors: vendors.map((row) => vendorJson(row, bills)),
+    payments,
+    vendors: vendors.map((row) => vendorJson(row, bills, payments)),
     dashboard: dashboardFor(bills, todayIso()),
   };
 }
@@ -676,7 +934,40 @@ export function submitBill(db, session, billId) {
   db.prepare(
     "UPDATE ap_bills SET status = 'awaiting_approval', updated_at = ? WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'draft'",
   ).run(new Date().toISOString(), billId, session.firm_id, session.selected_client_id);
+  recordDecision(db, session, billId, "submitted");
   audit(db, session, "bill.submitted", "ap_bill", billId);
+  return { status: 200, payload: { bill: storedBill(db, session, billId) } };
+}
+
+export function approveBill(db, session, billId) {
+  ensurePayables(db);
+  const denied = requireApprover(db, session, "approve");
+  if (denied) return denied;
+  const existing = loadOwnedBill(db, session, billId);
+  if (!existing) return fail(404, "Bill not found.");
+  if (existing.status !== "awaiting_approval") return fail(400, "Approve a bill that is pending.");
+  db.prepare(
+    "UPDATE ap_bills SET status = 'approved', updated_at = ? WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'awaiting_approval'",
+  ).run(new Date().toISOString(), billId, session.firm_id, session.selected_client_id);
+  recordDecision(db, session, billId, "approved");
+  audit(db, session, "bill.approved", "ap_bill", billId);
+  return { status: 200, payload: { bill: storedBill(db, session, billId) } };
+}
+
+export function rejectBill(db, session, billId, input) {
+  ensurePayables(db);
+  const denied = requireApprover(db, session, "reject");
+  if (denied) return denied;
+  const existing = loadOwnedBill(db, session, billId);
+  if (!existing) return fail(404, "Bill not found.");
+  if (existing.status !== "awaiting_approval") return fail(400, "Reject a bill that is pending.");
+  const note = cleanText(input?.note, 500, "the note");
+  if (note.error) return fail(400, note.error);
+  db.prepare(
+    "UPDATE ap_bills SET status = 'rejected', updated_at = ? WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'awaiting_approval'",
+  ).run(new Date().toISOString(), billId, session.firm_id, session.selected_client_id);
+  recordDecision(db, session, billId, "rejected", note.text);
+  audit(db, session, "bill.rejected", "ap_bill", billId);
   return { status: 200, payload: { bill: storedBill(db, session, billId) } };
 }
 
@@ -708,9 +999,12 @@ export function postBill(db, session, billId, input) {
   const body = input || {};
   const mismatch = sameClient(session, body);
   if (mismatch) return mismatch;
+  const denied = requireApprover(db, session, "post");
+  if (denied) return denied;
   const existing = loadOwnedBill(db, session, billId);
   if (!existing) return fail(404, "Bill not found.");
-  if (existing.status !== "awaiting_approval") return fail(400, "Post a bill that is awaiting approval.");
+  if (existing.status === "rejected") return fail(400, "A rejected bill does not post.");
+  if (existing.status !== "approved") return fail(400, "Post a bill that has been approved.");
   const totalCents = asCents(existing.total_cents);
   if (Object.prototype.hasOwnProperty.call(body, "total") && body.total !== "" && body.total != null) {
     let stated = 0;
@@ -735,9 +1029,10 @@ export function postBill(db, session, billId, input) {
   if (posted.error) return posted;
   const updated = db.prepare(
     `UPDATE ap_bills SET status = 'posted', journal_entry_id = ?, updated_at = ?
-     WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'awaiting_approval'`,
+     WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'approved'`,
   ).run(posted.payload.entry.id, new Date().toISOString(), billId, session.firm_id, session.selected_client_id);
-  if (Number(updated.changes) !== 1) return fail(400, "Post a bill that is awaiting approval.");
+  if (Number(updated.changes) !== 1) return fail(400, "Post a bill that has been approved.");
+  recordDecision(db, session, billId, "posted");
   audit(db, session, "bill.posted", "ap_bill", billId);
   return { status: 200, payload: { bill: storedBill(db, session, billId), entry: posted.payload.entry } };
 }
@@ -747,6 +1042,10 @@ export function voidBill(db, session, billId) {
   const existing = loadOwnedBill(db, session, billId);
   if (!existing) return fail(404, "Bill not found.");
   if (existing.status === "void") return fail(400, "This bill is already void.");
+  const openPayment = db.prepare(
+    "SELECT id FROM ap_payments WHERE bill_id = ? AND firm_id = ? AND client_id = ? AND status = 'recorded'",
+  ).get(billId, session.firm_id, session.selected_client_id);
+  if (openPayment) return fail(400, "Void the payments before voiding this bill.");
   let entry = null;
   if (existing.status === "posted") {
     if (!existing.journal_entry_id) return fail(400, "This posted bill has no journal to reverse.");
@@ -776,4 +1075,120 @@ export function voidBill(db, session, billId) {
   if (Number(updated.changes) !== 1) return fail(400, "This bill is already void.");
   audit(db, session, "bill.voided", "ap_bill", billId);
   return { status: 200, payload: { bill: storedBill(db, session, billId), entry } };
+}
+
+function paymentAccount(db, session, accountId) {
+  const account = db.prepare(
+    "SELECT id, code, name, cash FROM accounts WHERE id = ? AND firm_id = ? AND client_id = ?",
+  ).get(accountId, session.firm_id, session.selected_client_id);
+  if (!account) return fail(400, "Choose a cash or bank account.");
+  if (account.cash === 1) return { account };
+  const bank = db.prepare(
+    "SELECT id FROM bank_accounts WHERE firm_id = ? AND client_id = ? AND kind = 'bank' AND ledger_code = ?",
+  ).get(session.firm_id, session.selected_client_id, account.code);
+  if (!bank) return fail(400, "Choose a cash or bank account.");
+  return { account };
+}
+
+function recordedPaidCents(db, session, billId) {
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS amount_cents FROM ap_payments
+     WHERE bill_id = ? AND firm_id = ? AND client_id = ? AND status = 'recorded'`,
+  ).get(billId, session.firm_id, session.selected_client_id);
+  return asCents(row.amount_cents);
+}
+
+export function recordPayment(db, session, billId, input) {
+  ensurePayables(db);
+  const body = input || {};
+  const mismatch = sameClient(session, body);
+  if (mismatch) return mismatch;
+  const bill = loadOwnedBill(db, session, billId);
+  if (!bill) return fail(404, "Bill not found.");
+  if (bill.status !== "posted") return fail(400, "Record a payment on a posted bill.");
+  const paidOn = parseDate(body.paidOn);
+  if (!paidOn) return fail(400, "Enter the payment date.");
+  const reference = cleanText(body.reference, 40, "a reference", { required: true });
+  if (reference.error) return fail(400, reference.error);
+  let amount = 0;
+  try {
+    amount = parseCents(body.amount);
+  } catch (error) {
+    return fail(error.status || 400, error.message);
+  }
+  if (amount <= 0) return fail(400, "Enter an amount.");
+  const open = asCents(bill.total_cents) - recordedPaidCents(db, session, billId);
+  if (amount > open) return fail(400, "That payment is more than the amount still outstanding.");
+  const chosen = paymentAccount(db, session, body.accountId);
+  if (chosen.error) return chosen;
+  const payable = payableAccount(db, session);
+  if (!payable) return fail(400, "This client's chart is missing accounts payable.");
+  const memo = `Payment ${bill.invoice_number} ${reference.text}`.trim().slice(0, 200);
+  const posted = postJournalEntry(db, session, {
+    entryDate: paidOn,
+    memo,
+    lines: [
+      { accountId: payable.id, debit: centsText(amount), credit: "" },
+      { accountId: chosen.account.id, debit: "", credit: centsText(amount) },
+    ],
+  });
+  if (posted.error) return posted;
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO ap_payments (
+      id, firm_id, client_id, vendor_id, bill_id, paid_on, reference, amount_cents, account_id,
+      journal_entry_id, void_entry_id, status, created_by, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'recorded', ?, ?)`,
+  ).run(
+    id,
+    session.firm_id,
+    session.selected_client_id,
+    bill.vendor_id,
+    bill.id,
+    paidOn,
+    reference.text,
+    amount,
+    chosen.account.id,
+    posted.payload.entry.id,
+    session.user_id,
+    new Date().toISOString(),
+  );
+  audit(db, session, "payment.recorded", "ap_payment", id);
+  const payment = books(db, session).payments.find((row) => row.id === id);
+  return { status: 201, payload: { payment, bill: storedBill(db, session, billId), entry: posted.payload.entry } };
+}
+
+export function voidPayment(db, session, paymentId) {
+  ensurePayables(db);
+  const payment = db.prepare(
+    "SELECT * FROM ap_payments WHERE id = ? AND firm_id = ? AND client_id = ?",
+  ).get(paymentId, session.firm_id, session.selected_client_id);
+  if (!payment) return fail(404, "Payment not found.");
+  if (payment.status === "void") return fail(400, "This payment is already void.");
+  if (!payment.journal_entry_id) return fail(400, "This payment has no journal to reverse.");
+  const original = db.prepare(
+    `SELECT account_id, debit_cents, credit_cents FROM journal_lines
+     WHERE entry_id = ? AND firm_id = ? AND client_id = ? ORDER BY position`,
+  ).all(payment.journal_entry_id, session.firm_id, session.selected_client_id);
+  if (original.length < 2) return fail(400, "This payment has no journal to reverse.");
+  const reversal = original.map((line) => ({
+    accountId: line.account_id,
+    debit: asCents(line.credit_cents) ? centsText(asCents(line.credit_cents)) : "",
+    credit: asCents(line.debit_cents) ? centsText(asCents(line.debit_cents)) : "",
+  }));
+  const entryDate = [todayIso(), payment.paid_on].sort().at(-1);
+  const posted = postJournalEntry(db, session, {
+    entryDate,
+    memo: `Void payment ${payment.reference}`.slice(0, 200),
+    lines: reversal,
+  });
+  if (posted.error) return posted;
+  const updated = db.prepare(
+    `UPDATE ap_payments SET status = 'void', void_entry_id = ?
+     WHERE id = ? AND firm_id = ? AND client_id = ? AND status = 'recorded'`,
+  ).run(posted.payload.entry.id, paymentId, session.firm_id, session.selected_client_id);
+  if (Number(updated.changes) !== 1) return fail(400, "This payment is already void.");
+  audit(db, session, "payment.voided", "ap_payment", paymentId);
+  const stored = books(db, session).payments.find((row) => row.id === paymentId);
+  return { status: 200, payload: { payment: stored, entry: posted.payload.entry } };
 }

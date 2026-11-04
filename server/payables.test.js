@@ -137,6 +137,15 @@ test("a payable stays off the books until it is posted, and another firm cannot 
     const stillQuiet = await (await olivia.fetch(`${base}/api/ledger`)).json();
     assert.equal(stillQuiet.entries.length, 0);
 
+    const pendingPost = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/post`, {});
+    assert.equal(pendingPost.response.status, 400);
+    const approved = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/approve`);
+    assert.equal(approved.response.status, 200);
+    assert.equal(approved.body.bill.status, "approved");
+    assert.equal(approved.body.bill.approvals.some((row) => row.action === "approved" && row.actorName === "Olivia Martin"), true);
+    const approvedLedger = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(approvedLedger.entries.length, 0);
+
     const unbalanced = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/post`, { total: "1.00" });
     assert.equal(unbalanced.response.status, 400);
     assert.equal(unbalanced.body.error, "Debits and credits must be equal.");
@@ -209,5 +218,115 @@ test("a payable stays off the books until it is posted, and another firm cannot 
     assert.equal(audits.some((row) => row.action === "bill.posted"), true);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM ap_bills").get().count, 1);
     db.close();
+  });
+});
+
+test("staff cannot approve a bill, and a partial payment stays inside the firm", async () => {
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const books = await (await olivia.fetch(`${base}/api/payables`)).json();
+    const office = books.accounts.find((account) => account.code === "6400");
+    const cash = books.cashAccounts.find((account) => account.code === "1000");
+    assert.equal(books.canApprove, true);
+    const vendor = await sendJson(olivia, base, "POST", "/api/payables/vendors", { name: "Northwind Paper" });
+    const created = await sendJson(olivia, base, "POST", "/api/payables/bills", billInput(vendor.body.vendor.id, office.id, {
+      invoiceNumber: "NW-20",
+    }));
+    const submitted = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/submit`);
+    assert.equal(submitted.response.status, 200);
+
+    const invited = await sendJson(olivia, base, "POST", "/api/members", {
+      name: "Sam Rivera",
+      email: "sam.payables@northstarcreative.co",
+      role: "staff",
+      password: "ledgerly-staff",
+    });
+    assert.equal(invited.response.status, 201);
+    const staff = cookieJar();
+    const staffSignIn = await signIn(staff, base, { email: "sam.payables@northstarcreative.co", password: "ledgerly-staff" });
+    assert.equal(staffSignIn.user.role, "staff");
+    assert.equal(staffSignIn.client.id, signedIn.client.id);
+    const staffBooks = await (await staff.fetch(`${base}/api/payables`)).json();
+    assert.equal(staffBooks.canApprove, false);
+    const staffApprove = await sendJson(staff, base, "POST", `/api/payables/bills/${created.body.bill.id}/approve`);
+    assert.equal(staffApprove.response.status, 403);
+    const staffReject = await sendJson(staff, base, "POST", `/api/payables/bills/${created.body.bill.id}/reject`, { note: "No" });
+    assert.equal(staffReject.response.status, 403);
+    const staffPost = await sendJson(staff, base, "POST", `/api/payables/bills/${created.body.bill.id}/post`, {});
+    assert.equal(staffPost.response.status, 403);
+    const untouched = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(untouched.entries.length, 0);
+
+    const other = await sendJson(olivia, base, "POST", "/api/payables/bills", billInput(vendor.body.vendor.id, office.id, {
+      invoiceNumber: "NW-21",
+      lines: [{ description: "Rejected stock", accountId: office.id, amount: "5.00", tax: "0.00" }],
+    }));
+    await sendJson(olivia, base, "POST", `/api/payables/bills/${other.body.bill.id}/submit`);
+    const rejected = await sendJson(olivia, base, "POST", `/api/payables/bills/${other.body.bill.id}/reject`, { note: "Not our order." });
+    assert.equal(rejected.response.status, 200);
+    assert.equal(rejected.body.bill.status, "rejected");
+    assert.equal(rejected.body.bill.approvals.some((row) => row.action === "rejected" && row.actorName === "Olivia Martin"), true);
+    const rejectedPost = await sendJson(olivia, base, "POST", `/api/payables/bills/${other.body.bill.id}/post`, {});
+    assert.equal(rejectedPost.response.status, 400);
+    assert.equal(rejectedPost.body.error, "A rejected bill does not post.");
+
+    const approved = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/approve`);
+    assert.equal(approved.response.status, 200);
+    const staffApprovedPost = await sendJson(staff, base, "POST", `/api/payables/bills/${created.body.bill.id}/post`, {});
+    assert.equal(staffApprovedPost.response.status, 403);
+    const posted = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/post`, {});
+    assert.equal(posted.response.status, 200);
+    assert.equal(posted.body.entry.debitCents, posted.body.entry.creditCents);
+
+    const partial = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/payments`, {
+      paidOn: "2026-05-18",
+      amount: "4.00",
+      reference: "CHK-14",
+      accountId: cash.id,
+    });
+    assert.equal(partial.response.status, 201);
+    assert.equal(partial.body.entry.debitCents, partial.body.entry.creditCents);
+    assert.equal(partial.body.entry.debitCents, 400);
+    assert.equal(partial.body.bill.openCents, 600);
+    const afterPartial = await (await olivia.fetch(`${base}/api/payables`)).json();
+    const vendorRow = afterPartial.vendors.find((row) => row.id === vendor.body.vendor.id);
+    assert.equal(vendorRow.outstandingCents, 600);
+    assert.equal(vendorRow.payments.length, 1);
+    assert.equal(vendorRow.payments[0].reference, "CHK-14");
+    const ledger = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(ledger.foots, true);
+    assert.equal(ledger.trialBalance.debitsCents, ledger.trialBalance.creditsCents);
+    const may = await (await olivia.fetch(`${base}/api/statements?period=${encodeURIComponent("May 1 – May 31")}&basis=accrual`)).json();
+    assert.equal(may.balanceSheet.liabilities.find((row) => row.code === "2000").cents, 600);
+    assert.equal(may.balanceSheet.balances, true);
+
+    const harbor = cookieJar();
+    await signIn(harbor, base, firms.harbor.owner);
+    const hidden = await (await harbor.fetch(`${base}/api/payables`)).json();
+    assert.equal(hidden.payments.length, 0);
+    assert.equal(JSON.stringify(hidden).includes("CHK-14"), false);
+    const hiddenPayment = await sendJson(harbor, base, "POST", `/api/payables/payments/${partial.body.payment.id}/void`);
+    assert.equal(hiddenPayment.response.status, 404);
+
+    const rest = await sendJson(olivia, base, "POST", `/api/payables/bills/${created.body.bill.id}/payments`, {
+      paidOn: "2026-05-19",
+      amount: "6.00",
+      reference: "CHK-15",
+      accountId: cash.id,
+    });
+    assert.equal(rest.response.status, 201);
+    const cleared = await (await olivia.fetch(`${base}/api/payables`)).json();
+    assert.equal(cleared.vendors.find((row) => row.id === vendor.body.vendor.id).outstandingCents, 0);
+    assert.equal(cleared.dashboard.outstanding.count, 0);
+
+    const voided = await sendJson(olivia, base, "POST", `/api/payables/payments/${partial.body.payment.id}/void`);
+    assert.equal(voided.response.status, 200);
+    assert.equal(voided.body.payment.status, "void");
+    const restored = await (await olivia.fetch(`${base}/api/payables`)).json();
+    assert.equal(restored.vendors.find((row) => row.id === vendor.body.vendor.id).outstandingCents, 400);
+    const footed = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(footed.foots, true);
+    assert.equal(footed.trialBalance.debitsCents, footed.trialBalance.creditsCents);
   });
 });
