@@ -367,6 +367,106 @@ test("an unreviewed file creates no journal, and accepting a label does not post
   }
 });
 
+test("the same client, name, and size is not stored twice, and only a pdf or image is previewable", async () => {
+  await withServer(async (base, dbPath) => {
+    const olivia = cookieJar();
+    await signIn(olivia, base, firms.northstar.owner);
+    const before = bookCounts(dbPath);
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const stored = await postJson(olivia, base, "/api/documents", {
+      name: "pixel.png",
+      mediaType: "image/png",
+      contentBase64: png.toString("base64"),
+    });
+    assert.equal(stored.response.status, 201);
+    assert.equal(stored.body.file.preview, "image");
+    const again = await postJson(olivia, base, "/api/documents", {
+      name: "pixel.png",
+      mediaType: "image/png",
+      contentBase64: png.toString("base64"),
+    });
+    assert.equal(again.response.status, 409);
+    assert.match(again.body.error, /already stored/i);
+    const listed = await (await olivia.fetch(`${base}/api/documents`)).json();
+    assert.equal(listed.files.filter((file) => file.name === "pixel.png").length, 1);
+    const download = await olivia.fetch(`${base}/api/documents/${stored.body.file.id}`);
+    assert.equal(download.headers.get("content-type"), "image/png");
+    assert.equal(download.headers.get("content-disposition").includes("inline"), true);
+    assert.equal(Buffer.compare(Buffer.from(await download.arrayBuffer()), png), 0);
+    const notes = await postJson(olivia, base, "/api/documents", {
+      name: "notes.txt",
+      mediaType: "text/plain",
+      contentBase64: Buffer.from("notes\n").toString("base64"),
+    });
+    assert.equal(notes.body.file.preview, "");
+    const pdf = Buffer.from("%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+    const statement = await postJson(olivia, base, "/api/documents", {
+      name: "statement.pdf",
+      mediaType: "application/pdf",
+      contentBase64: pdf.toString("base64"),
+    });
+    assert.equal(statement.response.status, 201);
+    assert.equal(statement.body.file.preview, "pdf");
+    assert.deepEqual(bookCounts(dbPath), before);
+  });
+});
+
+test("an open request keeps its due date, and the client sees that request", async () => {
+  await withServer(async (base, dbPath) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const brightline = signedIn.clients.find((row) => row.name === "Brightline Labs");
+    const before = bookCounts(dbPath);
+    const invalid = await postJson(olivia, base, "/api/document-requests", {
+      clientId: brightline.id,
+      title: "Bad date",
+      dueOn: "June 15",
+    });
+    assert.equal(invalid.response.status, 400);
+    const open = await postJson(olivia, base, "/api/document-requests", {
+      clientId: brightline.id,
+      title: "May bank statement",
+      dueOn: "2026-06-15",
+    });
+    assert.equal(open.response.status, 201);
+    assert.equal(open.body.request.status, "open");
+    assert.equal(open.body.request.statusLabel, "Outstanding");
+    assert.equal(open.body.request.dueOn, "2026-06-15");
+    const done = await postJson(olivia, base, "/api/document-requests", {
+      clientId: brightline.id,
+      title: "Old receipt",
+      dueOn: "2026-05-01",
+    });
+    const file = await postJson(olivia, base, "/api/documents", {
+      clientId: brightline.id,
+      requestId: done.body.request.id,
+      name: "old-receipt.txt",
+      mediaType: "text/plain",
+      contentBase64: Buffer.from("receipt\n").toString("base64"),
+    });
+    assert.equal(file.response.status, 201);
+    const firm = await (await olivia.fetch(`${base}/api/clients`)).json();
+    assert.equal(firm.requestHistory.outstanding.some((row) => row.title === "May bank statement" && row.dueOn === "2026-06-15" && row.statusLabel === "Outstanding"), true);
+    assert.equal(firm.requestHistory.completed.some((row) => row.title === "Old receipt" && row.status === "complete" && row.statusLabel === "Completed"), true);
+    assert.equal(firm.requestHistory.outstanding.some((row) => row.title === "Old receipt"), false);
+
+    const casey = cookieJar();
+    await signIn(casey, base, firms.northstar.portal);
+    const portal = await (await casey.fetch(`${base}/api/portal`)).json();
+    assert.equal(portal.notifications.length, 1);
+    assert.match(portal.notifications[0].message, /May bank statement/);
+    assert.match(portal.notifications[0].message, /June 15, 2026/);
+    assert.equal(JSON.stringify(portal.notifications).includes("Old receipt"), false);
+    assert.equal(portal.requests.some((row) => row.title === "May bank statement" && row.status === "open"), true);
+
+    const harbor = cookieJar();
+    await signIn(harbor, base, firms.harbor.owner);
+    const hidden = await (await harbor.fetch(`${base}/api/clients`)).json();
+    assert.equal(JSON.stringify(hidden.requestHistory).includes("May bank statement"), false);
+    assert.deepEqual(bookCounts(dbPath), before);
+  });
+});
+
 test("the document screens store a file instead of announcing one", () => {
   const clients = readFileSync(new URL("../src/Clients.jsx", import.meta.url), "utf8");
   const receipt = readFileSync(new URL("../src/Receipt.jsx", import.meta.url), "utf8");

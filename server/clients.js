@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { listRequestHistory } from "./documents.js";
 import { loadStatement } from "./statements.js";
 
 const REQUESTS = `
@@ -191,11 +192,8 @@ export function listFirm(db, session, filters = {}) {
     "SELECT MAX(posted_on) AS day FROM bank_transactions WHERE firm_id = ? AND client_id = ?",
   );
   let periodLabel = "";
-  const openRequests = db.prepare(
-    `SELECT id, title, client_id FROM document_requests
-     WHERE firm_id = ? AND status = 'open'
-     ORDER BY created_at, title`,
-  ).all(session.firm_id);
+  const history = listRequestHistory(db, session);
+  const openRequests = history.outstanding;
   const clients = rows.map((row) => {
     const loaded = loadStatement(db, session.firm_id, row.id, { period: "May 1 – May 31", basis: "accrual" });
     if (!periodLabel && loaded?.period?.label) periodLabel = loaded.period.label;
@@ -203,7 +201,7 @@ export function listFirm(db, session, filters = {}) {
     const unreconciled = countOf(unreconciledFor.get(session.firm_id, row.id));
     const days = [lastJournal.get(session.firm_id, row.id)?.day, lastBank.get(session.firm_id, row.id)?.day].filter(Boolean).sort();
     const profit = loaded?.statement?.profitAndLoss;
-    const requestsForClient = openRequests.filter((request) => request.client_id === row.id);
+    const requestsForClient = openRequests.filter((request) => request.clientId === row.id);
     const ready = uncategorized > 0 || unreconciled > 0;
     const tasks = tasksFor(uncategorized, unreconciled, requestsForClient);
     return {
@@ -228,19 +226,7 @@ export function listFirm(db, session, filters = {}) {
       recentlyAdded: recentlyAdded(row.created_at),
     };
   });
-  const requests = db.prepare(
-    `SELECT document_requests.id, document_requests.title, document_requests.status, document_requests.client_id, clients.name AS client_name
-     FROM document_requests
-     JOIN clients ON clients.id = document_requests.client_id AND clients.firm_id = document_requests.firm_id
-     WHERE document_requests.firm_id = ? AND document_requests.status = 'open'
-     ORDER BY document_requests.created_at, clients.name`,
-  ).all(session.firm_id).map((row) => ({
-    id: row.id,
-    title: row.title,
-    status: row.status,
-    clientId: row.client_id,
-    clientName: row.client_name,
-  }));
+  const requests = history.outstanding;
   const uncategorized = clients.reduce((total, client) => total + client.uncategorized, 0);
   const unreconciled = clients.reduce((total, client) => total + client.unreconciled, 0);
   const query = String(filters.q || "").trim().toLowerCase();
@@ -279,6 +265,7 @@ export function listFirm(db, session, filters = {}) {
       members,
       clients: visible,
       requests,
+      requestHistory: history,
     },
   };
 }

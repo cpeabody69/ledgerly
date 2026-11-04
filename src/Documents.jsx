@@ -454,6 +454,9 @@ function FileDrawer({ file, folders, onClose, onChanged }) {
           </div>
           <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
+        {file.preview === "image" ? <img className="document-preview" alt="" src={`/api/documents/${file.id}`} /> : null}
+        {file.preview === "pdf" ? <iframe className="document-preview" title={`Preview ${file.name}`} src={`/api/documents/${file.id}`} /> : null}
+        {file.preview ? null : <p className="books-note">Download this file. Preview is available for PDF and image files.</p>}
         <form className="drawer-section" onSubmit={saveDetails}>
           <h3>File</h3>
           <label className="field"><span>Name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>

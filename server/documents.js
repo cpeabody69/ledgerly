@@ -88,6 +88,49 @@ export function ensureDocuments(db) {
     if (present.has(name)) continue;
     db.exec(`ALTER TABLE client_files ADD COLUMN ${name} ${definition}`);
   }
+  const requests = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'document_requests'").get();
+  if (!requests) return;
+  const requestColumns = new Set(db.prepare("PRAGMA table_info(document_requests)").all().map((column) => column.name));
+  if (!requestColumns.has("due_on")) db.exec("ALTER TABLE document_requests ADD COLUMN due_on TEXT NOT NULL DEFAULT ''");
+}
+
+function previewKind(mediaType) {
+  if (mediaType === "application/pdf") return "pdf";
+  if (mediaType === "image/png" || mediaType === "image/jpeg") return "image";
+  return "";
+}
+
+function dueDate(value) {
+  const dueOn = String(value || "").trim();
+  if (!dueOn) return { dueOn: "" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) return { error: "Enter a due date." };
+  const [year, month, day] = dueOn.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return { error: "Enter a due date." };
+  return { dueOn };
+}
+
+function formatDue(value) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-");
+  const name = MONTHS[Number(month) - 1];
+  if (!name || !day) return "";
+  return `${name} ${Number(day)}, ${year}`;
+}
+
+function requestJson(row) {
+  const open = row.status !== "complete";
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    statusLabel: open ? "Outstanding" : "Completed",
+    dueOn: row.due_on || "",
+    dueOnLabel: formatDue(row.due_on || ""),
+    clientId: row.client_id,
+    clientName: row.client_name || "",
+    createdAt: row.created_at,
+  };
 }
 
 function formatWhen(value) {
@@ -178,6 +221,7 @@ function fileJson(row) {
     requestTitle: row.request_title || "",
     transactionId: row.transaction_id,
     transactionDescription: row.transaction_description || "",
+    preview: previewKind(row.media_type),
   };
 }
 
@@ -189,17 +233,37 @@ export function createDocumentRequest(db, session, input) {
   if (!client) return fail(404, "Client not found.");
   const title = String(body.title || "").trim();
   if (!title || title.length > 120) return fail(400, "Enter a document title.");
+  const due = dueDate(body.dueOn);
+  if (due.error) return fail(400, due.error);
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO document_requests (id, firm_id, client_id, title, status, created_at) VALUES (?, ?, ?, ?, 'open', ?)",
-  ).run(id, session.firm_id, client.id, title, now);
+    "INSERT INTO document_requests (id, firm_id, client_id, title, status, due_on, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?)",
+  ).run(id, session.firm_id, client.id, title, due.dueOn, now);
   audit(db, session, "document_request.created", { clientId: client.id, entityType: "document_request", entityId: id });
+  const row = db.prepare(
+    `SELECT document_requests.*, clients.name AS client_name
+     FROM document_requests
+     JOIN clients ON clients.id = document_requests.client_id AND clients.firm_id = document_requests.firm_id
+     WHERE document_requests.id = ? AND document_requests.firm_id = ?`,
+  ).get(id, session.firm_id);
+  return { status: 201, payload: { request: requestJson(row) } };
+}
+
+export function listRequestHistory(db, session, clientId = null) {
+  ensureDocuments(db);
+  if (clientId && !clientInFirm(db, session, clientId)) return null;
+  const rows = db.prepare(
+    `SELECT document_requests.*, clients.name AS client_name
+     FROM document_requests
+     JOIN clients ON clients.id = document_requests.client_id AND clients.firm_id = document_requests.firm_id
+     WHERE document_requests.firm_id = ?
+       AND (? IS NULL OR document_requests.client_id = ?)
+     ORDER BY document_requests.created_at, clients.name, document_requests.title`,
+  ).all(session.firm_id, clientId || null, clientId || null).map(requestJson);
   return {
-    status: 201,
-    payload: {
-      request: { id, title, status: "open", clientId: client.id, clientName: client.name },
-    },
+    outstanding: rows.filter((request) => request.status === "open"),
+    completed: rows.filter((request) => request.status === "complete"),
   };
 }
 
@@ -243,6 +307,10 @@ export function storeDocument(db, session, input) {
   if (body.folderId && (!folder || folder.client_id !== client.id)) return fail(404, "Folder not found.");
   const bytes = fileBytes(body);
   if (!bytes) return fail(400, "Choose a synthetic file of 48 KB or less.");
+  const duplicate = db.prepare(
+    "SELECT id FROM client_files WHERE firm_id = ? AND client_id = ? AND name = ? AND byte_size = ?",
+  ).get(session.firm_id, client.id, name, bytes.length);
+  if (duplicate) return fail(409, "This file is already stored for this client. It was not uploaded again.");
   const requestId = body.requestId ? String(body.requestId) : null;
   const transactionId = body.transactionId ? String(body.transactionId) : null;
   if (requestId && transactionId) return fail(400, "Attach the file to a request or a transaction.");
@@ -399,6 +467,7 @@ function libraryFile(row, records, folders) {
     uploadedAtLabel: formatWhen(row.created_at),
     status: row.status || "stored",
     statusLabel: row.status === "archived" ? "Archived" : "Stored",
+    preview: previewKind(row.media_type),
     folderId: row.folder_id || "",
     folderName: folder?.name || "",
     tags: mine.filter((record) => record.kind === "tag").map((record) => ({ id: record.id, name: record.name })),

@@ -112,6 +112,17 @@ export function Portal({ session, onSession }) {
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="portal-stack">
+          {(portal?.notifications || []).length ? (
+            <section className="card" aria-label="Notifications">
+              <div className="card-header">
+                <div>
+                  <h2>Notifications</h2>
+                  <p>Open document requests from your firm.</p>
+                </div>
+              </div>
+              {portal.notifications.map((notice) => <p className="assistant-banner" key={notice.id}>{notice.message}</p>)}
+            </section>
+          ) : null}
           <section className="card">
             <div className="card-header">
               <div>
@@ -124,6 +135,7 @@ export function Portal({ session, onSession }) {
                 <thead>
                   <tr>
                     <th>Request</th>
+                    <th>Due</th>
                     <th>Status</th>
                     <th />
                   </tr>
@@ -132,9 +144,10 @@ export function Portal({ session, onSession }) {
                   {requests.map((request) => (
                     <tr key={request.id}>
                       <td><strong>{request.title}</strong></td>
+                      <td>{request.dueOnLabel || "—"}</td>
                       <td>
                         <span className={`badge ${tone(request.status)}`}>
-                          {request.status === "complete" ? "Received" : "Open"}
+                          {request.statusLabel || (request.status === "complete" ? "Completed" : "Outstanding")}
                         </span>
                       </td>
                       <td>

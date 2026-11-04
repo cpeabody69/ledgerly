@@ -255,6 +255,7 @@ function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
 function RequestDocuments({ clients, selectedClientId, onClose, onCreated }) {
   const [clientId, setClientId] = useState(selectedClientId || clients[0]?.id || "");
   const [title, setTitle] = useState("");
+  const [dueOn, setDueOn] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const ready = clientId && title.trim() && !pending;
@@ -267,7 +268,7 @@ function RequestDocuments({ clients, selectedClientId, onClose, onCreated }) {
     const response = await fetch("/api/document-requests", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clientId, title }),
+      body: JSON.stringify({ clientId, title, dueOn }),
     });
     const body = await response.json().catch(() => ({}));
     setPending(false);
@@ -296,6 +297,7 @@ function RequestDocuments({ clients, selectedClientId, onClose, onCreated }) {
             </select>
           </label>
           <label className="field full"><span>Title</span><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+          <label className="field full"><span>Due date</span><input value={dueOn} onChange={(event) => setDueOn(event.target.value)} placeholder="2026-06-15" /></label>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="modal-footer">
@@ -483,18 +485,27 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
         </section>
         <div className="portal-side">
           <section className="card">
-            <div className="card-header"><div><h2>Document requests</h2></div></div>
-            {firm?.requests?.length ? firm.requests.map((request) => (
+            <div className="card-header"><div><h2>Document requests</h2><p>Outstanding requests stay open until a file is stored.</p></div></div>
+            <h3 className="request-heading">Outstanding</h3>
+            {(firm?.requestHistory?.outstanding || []).length ? firm.requestHistory.outstanding.map((request) => (
               <div className="request-row" key={request.id}>
                 <span className="file-icon"><Icon name="file" /></span>
-                <span><b>{request.title}</b><small>{request.clientName}</small></span>
-                <span className="badge amber">Open</span>
+                <span><b>{request.title}</b><small>{[request.clientName, request.dueOnLabel || "No due date"].join(" · ")}</small></span>
+                <span className="badge amber">{request.statusLabel}</span>
                 <label className="text-button">
                   Attach file
-                  <input aria-label={`Attach file to ${request.title}`} type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,text/plain,application/pdf,image/png,image/jpeg" hidden onChange={(event) => attach(request, event.target.files?.[0])} />
+                  <input aria-label={`Attach file to ${request.title}`} type="file" accept=".txt,.pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv,text/plain,application/pdf,image/png,image/jpeg,text/csv" hidden onChange={(event) => attach(request, event.target.files?.[0])} />
                 </label>
               </div>
-            )) : <p className="books-note">No open requests.</p>}
+            )) : <p className="books-note">No outstanding requests.</p>}
+            <h3 className="request-heading">Completed</h3>
+            {(firm?.requestHistory?.completed || []).length ? firm.requestHistory.completed.map((request) => (
+              <div className="request-row" key={request.id}>
+                <span className="file-icon"><Icon name="file" /></span>
+                <span><b>{request.title}</b><small>{[request.clientName, request.dueOnLabel || "No due date"].join(" · ")}</small></span>
+                <span className="badge green">{request.statusLabel}</span>
+              </div>
+            )) : <p className="books-note">No completed requests.</p>}
             <Button variant="secondary" icon="plus" onClick={() => setRequesting(true)}>New document request</Button>
           </section>
           <section className="card">
