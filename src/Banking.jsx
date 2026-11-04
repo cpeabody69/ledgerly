@@ -47,7 +47,9 @@ export function Banking({ clientId }) {
     fetch("/api/plaid")
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
-        if (!cancelled && response.ok) setPlaid(body);
+        if (cancelled) return;
+        if (response.ok) setPlaid(body);
+        else setPlaid({ configured: false, notice: body.error || "Sandbox credentials are not configured.", connections: [] });
       })
       .catch(() => {
         if (!cancelled) setPlaid({ configured: false, notice: "Sandbox credentials are not configured.", connections: [] });
@@ -105,14 +107,19 @@ export function Banking({ clientId }) {
   }
 
   async function connectSandbox() {
-    if (!plaid?.configured) return;
+    if (!plaid?.configured) {
+      setNotice("");
+      setError(plaid?.notice || "Sandbox credentials are not configured.");
+      return;
+    }
     setPending(true);
     setError("");
     try {
       const tokenResponse = await fetch("/api/plaid/link-token", { method: "POST" });
       const tokenBody = await tokenResponse.json().catch(() => ({}));
-      if (!tokenResponse.ok) throw new Error(tokenBody.error || "Sandbox Link did not start.");
+      if (!tokenResponse.ok || !tokenBody.linkToken) throw new Error(tokenBody.error || "Sandbox Link did not start.");
       const PlaidLink = await loadPlaidLink();
+      if (typeof PlaidLink?.create !== "function") throw new Error("Plaid Link did not load.");
       await new Promise((resolve, reject) => {
         const handler = PlaidLink.create({
           token: tokenBody.linkToken,
@@ -138,6 +145,10 @@ export function Banking({ clientId }) {
             else resolve();
           },
         });
+        if (typeof handler?.open !== "function") {
+          reject(new Error("Plaid Link did not open."));
+          return;
+        }
         handler.open();
       });
     } catch (connectError) {
@@ -242,8 +253,10 @@ export function Banking({ clientId }) {
           <h1>Banking</h1>
           <p>Accounts, statement lines, and reconciliation for this client.</p>
         </div>
-        <Button disabled={!plaid?.configured || pending} onClick={connectSandbox}>Connect Bank Account</Button>
+        <Button disabled={pending || !plaid} onClick={connectSandbox}>Connect Bank Account</Button>
       </div>
+      {error ? <p className="form-error banking-alert" role="alert">{error}</p> : null}
+      {notice ? <p className="books-note">{notice}</p> : null}
       <section className="card plaid-panel" aria-label="Sandbox bank connection">
         <div className="card-header">
           <div>
@@ -276,8 +289,6 @@ export function Banking({ clientId }) {
           </div>
         )) : <p className="banking-empty">No sandbox accounts connected.</p>}
       </section>
-      {error ? <p className="form-error books-error" role="alert">{error}</p> : null}
-      {notice ? <p className="books-note">{notice}</p> : null}
       <div className="banking-layout">
         <section className="card">
           <div className="card-header"><div><h2>Accounts</h2><p>Not a live bank connection.</p></div></div>

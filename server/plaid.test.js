@@ -300,9 +300,11 @@ test("sandbox copy stays on the banking screen and off the ledger poster", () =>
   const plaid = readFileSync(new URL("./plaid.js", import.meta.url), "utf8");
   assert.match(banking, /Sandbox credentials are not configured/);
   assert.match(banking, /Connect Bank Account/);
+  assert.match(banking, /setError\(plaid\?\.notice \|\| "Sandbox credentials are not configured\."\)/);
+  assert.match(banking, /disabled=\{pending \|\| !plaid\} onClick=\{connectSandbox\}/);
+  assert.doesNotMatch(banking, /disabled=\{!plaid\?\.configured/);
   assert.doesNotMatch(plaid, /PLAID_REDIRECT_URI|PLAID_WEBHOOK/);
   assert.match(banking, /Not a live bank connection/);
-  assert.match(banking, /disabled=\{!plaid\?\.configured/);
   assert.doesNotMatch(plaid, /postJournalEntry/);
   assert.doesNotMatch(plaid, /production\.plaid\.com/);
   assert.match(plaid, /https:\/\/sandbox\.plaid\.com/);

@@ -104,7 +104,7 @@ Banking connects a sandbox bank for the open client through Plaid Link. The publ
 
 Copy `.env.example` to `.env` in the repository root. `server/index.js` reads that file when the API process starts (`npm run dev` and `npm start`). Put the sandbox client id and sandbox secret from the Plaid dashboard (Team Settings → Keys, Sandbox) in `.env`. Set `PLAID_ENV=sandbox`. Restart the API after saving `.env`. The file is gitignored. Variables already present in the process environment are left as they are. No other Plaid variables are read.
 
-If `PLAID_CLIENT_ID` or `PLAID_SECRET` is unset, Connect Bank Account stays disabled and Banking says sandbox credentials are not configured. Any `PLAID_ENV` other than `sandbox` also leaves the button disabled.
+If `PLAID_CLIENT_ID` or `PLAID_SECRET` is unset, or `PLAID_ENV` is not `sandbox`, Connect Bank Account stays clickable and shows that failure on the Banking page. Plaid Link opens only after the API has those three sandbox values.
 
 Sandbox test, after the API has restarted with those three values:
 

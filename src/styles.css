@@ -2077,3 +2077,4 @@ inherits:false}
 .assistant-draft{display:grid;gap:8px;padding:10px;background:#f8fafc;border-radius:8px}
 .assistant-form{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;padding:12px 18px 18px;border-top:1px solid var(--border)}
 .books-error{padding:12px 17px 0}
+.banking-alert{margin:-8px 0 16px;padding:10px 12px;border:1px solid #f0c9c4;border-radius:7px;background:#fff6f5}
