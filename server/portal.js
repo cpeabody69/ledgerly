@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { firms } from "./accounts.js";
 import { hashPassword, verifyPassword } from "./db.js";
-import { listDocuments, readDocument, storeDocument } from "./documents.js";
+import { listDocuments, listRequestHistory, readDocument, storeDocument } from "./documents.js";
 import { listInvoices } from "./invoices.js";
 
 function column(db, table, name) {
@@ -206,15 +206,19 @@ export function signOutPortal(db, session) {
 
 export function listPortal(db, session, clientId) {
   if (clientId && clientId !== session.client_id) return { status: 404, error: "Client not found." };
-  const requests = db.prepare(
-    `SELECT id, title, status FROM document_requests
-     WHERE firm_id = ? AND client_id = ?
-     ORDER BY created_at, title`,
-  ).all(session.firm_id, session.client_id).map((row) => ({
-    id: row.id,
-    title: row.title,
-    status: row.status,
-    clientId: session.client_id,
+  const history = listRequestHistory(db, session, session.client_id);
+  if (!history) return { status: 404, error: "Client not found." };
+  const requests = [...history.outstanding, ...history.completed];
+  const notifications = history.outstanding.map((request) => ({
+    id: request.id,
+    title: request.title,
+    status: request.status,
+    statusLabel: request.statusLabel,
+    dueOn: request.dueOn,
+    dueOnLabel: request.dueOnLabel,
+    message: request.dueOnLabel
+      ? `Document requested: ${request.title}. Due ${request.dueOnLabel}.`
+      : `Document requested: ${request.title}.`,
   }));
   const documents = listDocuments(db, session, session.client_id);
   if (documents.error) return documents;
@@ -224,6 +228,8 @@ export function listPortal(db, session, clientId) {
     status: 200,
     payload: {
       requests,
+      requestHistory: history,
+      notifications,
       files: documents.payload.files,
       invoices: invoices.payload.invoices.map((invoice) => ({
         id: invoice.id,
