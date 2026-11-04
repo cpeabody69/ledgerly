@@ -1,7 +1,7 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
 // Accounting is the client's books. Transactions and Banking are this client's statement activity.
-// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses. Time is this firm's staff, work, and hours. Tax readiness is a checklist read from this client's books, plus a status a person records. The assistant reads this client's books and drafts a journal a person posts. Settings shows this firm's Ledgerly plan and seats.
+// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. New transaction stores a statement line for the open client. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses. Time is this firm's staff, work, and hours. Tax readiness is a checklist read from this client's books, plus a status a person records. The assistant reads this client's books and drafts a journal a person posts. Settings shows this firm's Ledgerly plan and seats.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { PERIODS } from "../shared/activity.js";
 import { formatMoney } from "../shared/money.js";
@@ -359,6 +359,23 @@ function Ce({
       }} /> : null}</div>;
 }
 
+function todayStamp() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, `0`)}-${String(now.getDate()).padStart(2, `0`)}`;
+}
+
+function periodForPostedOn(postedOn) {
+  const [yearText, monthText] = String(postedOn || ``).split(`-`);
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (month === 5) return PERIODS[0];
+  if (month === 4) return PERIODS[1];
+  if (year === 2025 && month >= 4 && month <= 6) return PERIODS[2];
+  const today = todayStamp();
+  if (postedOn >= `${today.slice(0, 4)}-01-01` && postedOn <= today) return PERIODS[3];
+  return PERIODS[4];
+}
+
 function Cmp_we({
   type: e,
   onClose: t,
@@ -386,10 +403,64 @@ function Cmp_we({
         action: `Upload document`
       }
     }[e],
+    transaction = e === `transaction`,
     [i, a] = (0, b.useState)(``),
     [o, s] = (0, b.useState)(``),
-    c = e === `upload` || i.trim() && o.trim();
-  return <div className="modal-backdrop" role="presentation" onMouseDown={t}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="composer-title" onMouseDown={e => e.stopPropagation()}><div className="modal-header"><div><h2 id="composer-title">{r.title}</h2><p>{r.subtitle}</p></div><button className="modal-close" onClick={t} aria-label="Close">×</button></div>{e === `upload` ? <label className="upload-zone"><input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={e => s(e.target.files?.[0]?.name || ``)} /><span><C name="upload" /></span><b>{o || `Choose a receipt or drag it here`}</b><small>PDF, PNG, or JPG · up to 10 MB</small></label> : <div className="form-grid"><label className="field full"><span>{e === `invoice` ? `Customer` : e === `expense` ? `Merchant` : `Description`}</span><input autoFocus={!0} value={o} onChange={e => s(e.target.value)} placeholder={e === `invoice` ? `Select or enter customer` : `e.g. Office supplies`} /></label><label className="field"><span>Amount</span><div className="amount-input"><b>$</b><input inputMode="decimal" value={i} onChange={e => a(e.target.value)} placeholder="0.00" /></div></label><label className="field"><span>Date</span><input type="date" defaultValue="2025-05-24" /></label><label className="field full"><span>Category</span><select defaultValue=""><option value="" disabled={!0}>Select an accounting category</option><option>Sales income</option><option>Software & hosting</option><option>Office expenses</option><option>Professional services</option></select></label></div>}<div className="modal-footer"><Cmp_w variant="secondary" onClick={t}>Cancel</Cmp_w><Cmp_w disabled={!c} onClick={() => n(e === `upload` ? `Receipt uploaded and ready to match` : `${r.title} saved successfully`)}>{r.action}</Cmp_w></div></section></div>;
+    [postedOn, setPostedOn] = (0, b.useState)(todayStamp),
+    [bankAccounts, setBankAccounts] = (0, b.useState)([]),
+    [bankAccountId, setBankAccountId] = (0, b.useState)(``),
+    [error, setError] = (0, b.useState)(``),
+    [pending, setPending] = (0, b.useState)(!1),
+    c = e === `upload` || (transaction ? o.trim() && i.trim() && postedOn && bankAccountId && !pending : i.trim() && o.trim());
+  (0, b.useEffect)(() => {
+    if (!transaction) return undefined;
+    let cancelled = false;
+    fetch(`/api/transactions`).then(async (response) => {
+      let body = await response.json().catch(() => ({}));
+      if (cancelled) return;
+      if (!response.ok) {
+        setError(body.error || `Could not load accounts.`);
+        return;
+      }
+      let accounts = body.bankAccounts || [];
+      setBankAccounts(accounts);
+      setBankAccountId(accounts[0]?.id || ``);
+      if (!accounts.length) setError(`Choose an account from this client's Banking screen.`);
+    }).catch(() => {
+      if (!cancelled) setError(`Could not load accounts.`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [transaction]);
+  async function saveTransaction() {
+    if (!c || pending) return;
+    setPending(!0);
+    setError(``);
+    try {
+      let response = await fetch(`/api/transactions`, {
+        method: `POST`,
+        headers: {
+          "content-type": `application/json`
+        },
+        body: JSON.stringify({
+          bankAccountId,
+          postedOn,
+          description: o.trim(),
+          amount: i.trim()
+        })
+      });
+      let body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.transaction) {
+        setError(body.error || `The line was not added.`);
+        return;
+      }
+      n(body.transaction);
+    } finally {
+      setPending(!1);
+    }
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={t}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="composer-title" onMouseDown={event => event.stopPropagation()}><div className="modal-header"><div><h2 id="composer-title">{r.title}</h2><p>{r.subtitle}</p></div><button className="modal-close" onClick={t} aria-label="Close">×</button></div>{e === `upload` ? <label className="upload-zone"><input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={event => s(event.target.files?.[0]?.name || ``)} /><span><C name="upload" /></span><b>{o || `Choose a receipt or drag it here`}</b><small>PDF, PNG, or JPG · up to 10 MB</small></label> : <div className="form-grid"><label className="field full"><span>{e === `invoice` ? `Customer` : e === `expense` ? `Merchant` : `Description`}</span><input autoFocus={!0} value={o} onChange={event => s(event.target.value)} placeholder={e === `invoice` ? `Select or enter customer` : `e.g. Office supplies`} /></label><label className="field"><span>Amount</span><div className="amount-input"><b>$</b><input inputMode="decimal" value={i} onChange={event => a(event.target.value)} placeholder="0.00" /></div></label><label className="field"><span>Date</span><input type="date" value={transaction ? postedOn : undefined} defaultValue={transaction ? undefined : `2025-05-24`} onChange={transaction ? event => setPostedOn(event.target.value) : undefined} /></label>{transaction ? <label className="field full"><span>Account</span><select aria-label="Account" value={bankAccountId} onChange={event => setBankAccountId(event.target.value)}>{bankAccounts.map(account => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label> : <label className="field full"><span>Category</span><select defaultValue=""><option value="" disabled={!0}>Select an accounting category</option><option>Sales income</option><option>Software & hosting</option><option>Office expenses</option><option>Professional services</option></select></label>}</div>}{error ? <p className="form-error" role="alert">{error}</p> : null}<div className="modal-footer"><Cmp_w variant="secondary" onClick={t}>Cancel</Cmp_w><Cmp_w disabled={!c} onClick={() => transaction ? saveTransaction() : n(e === `upload` ? `Receipt uploaded and ready to match` : `${r.title} saved successfully`)}>{pending ? `Saving…` : r.action}</Cmp_w></div></section></div>;
 }
 function Te({ session, onSession }) {
   let [e, t] = (0, b.useState)(`Dashboard`),
@@ -461,8 +532,15 @@ function Te({ session, onSession }) {
                 l(!c), d(!1);
               }} aria-label="Notifications"><C name="bell" /><i /></button>{c && <div className="top-menu notification-menu"><div className="menu-title"><b>Notifications</b><button onClick={() => m(`All notifications marked read`)}>Mark all read</button></div><button onClick={() => h(`Transactions`)}><span className="notice-dot amber" /><span><b>12 transactions need review</b><small>Business checking · 8 minutes ago</small></span></button><button onClick={() => h(`Banking`)}><span className="notice-dot blue" /><span><b>Bank reconciliation completed</b><small>Business checking · Yesterday</small></span></button></div>}</div><span className="divider" /><div className="top-menu-wrap"><button className={`profile ${u ? `active` : ``}`} onClick={() => {
                 d(!u), l(!1);
-              }}><T initials={session.user.name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase()} color="navy" /><span><b>{session.user.name}</b><small>{session.user.roleLabel}</small></span><C name="chevron" size={14} /></button>{u && <div className="top-menu profile-menu"><span>{session.user.email}</span><button onClick={() => h(`Settings`)}><C name="settings" size={15} />Company settings</button><button onClick={() => m(`Profile settings opened`)}><C name="users" size={15} />Personal profile</button><button onClick={signOut}>Sign out</button></div>}</div></div></header><div className="content">{_}</div></main></div>{n === `upload` ? <ReceiptModal clientName={session.client?.name} clientId={session.client?.id} onClose={() => r(null)} /> : n === `invoice` ? <InvoiceModal onClose={() => r(null)} onSaved={() => { r(null); setInvoiceVersion(version => version + 1); h(`Invoices`); }} /> : n === `expense` ? <ExpenseModal clientId={session.client?.id} onClose={() => r(null)} onSaved={() => { r(null); setExpenseVersion(version => version + 1); h(`Expenses`); }} /> : n ? <Cmp_we type={n} onClose={() => r(null)} onSave={e => {
-      r(null), m(e);
+              }}><T initials={session.user.name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase()} color="navy" /><span><b>{session.user.name}</b><small>{session.user.roleLabel}</small></span><C name="chevron" size={14} /></button>{u && <div className="top-menu profile-menu"><span>{session.user.email}</span><button onClick={() => h(`Settings`)}><C name="settings" size={15} />Company settings</button><button onClick={() => m(`Profile settings opened`)}><C name="users" size={15} />Personal profile</button><button onClick={signOut}>Sign out</button></div>}</div></div></header><div className="content">{_}</div></main></div>{n === `upload` ? <ReceiptModal clientName={session.client?.name} clientId={session.client?.id} onClose={() => r(null)} /> : n === `invoice` ? <InvoiceModal onClose={() => r(null)} onSaved={() => { r(null); setInvoiceVersion(version => version + 1); h(`Invoices`); }} /> : n === `expense` ? <ExpenseModal clientId={session.client?.id} onClose={() => r(null)} onSaved={() => { r(null); setExpenseVersion(version => version + 1); h(`Expenses`); }} /> : n === `transaction` ? <Cmp_we type={n} onClose={() => r(null)} onSave={row => {
+      if (!row?.id) return;
+      r(null);
+      h(`Transactions`, {
+        transactionPeriod: periodForPostedOn(row.postedOn)
+      });
+      m(`Added a line for review. It is not posted until you categorize it.`);
+    }} /> : n ? <Cmp_we type={n} onClose={() => r(null)} onSave={message => {
+      r(null), m(message);
     }} /> : null}{assistantOpen ? <Assistant clientId={session.client?.id} clientName={session.client?.name} onClose={() => setAssistantOpen(!1)} onUseDraft={draft => { setJournalDraft(draft); setAssistantOpen(!1); h(`Accounting`); }} /> : null}{i && <div className="toast" role="status"><span><C name="check" size={15} /></span>{i}</div>}</ie.Provider>;
 }
 
