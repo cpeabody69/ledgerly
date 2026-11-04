@@ -5,6 +5,7 @@ import { createClient, findClient, inviteMember, loadSession, openDatabase, sele
 import { listFirm } from "./clients.js";
 import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
+import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
@@ -259,7 +260,65 @@ async function handle(req, res, db, options) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
-    const result = discardInvoice(db, session, decodeURIComponent(invoiceMatch[1]));
+    const invoiceId = decodeURIComponent(invoiceMatch[1]);
+    const result = discardInvoice(db, session, invoiceId);
+    if (!result.error) releaseInvoicedTime(db, session, invoiceId);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/time" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = listTime(db, session);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/time" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = createTimeEntry(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/time/invoice" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = invoiceTime(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/work" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = createWork(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const timeMatch = pathname.match(/^\/api\/time\/([^/]+)$/);
+  if (timeMatch && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readTimeEntry(db, session, decodeURIComponent(timeMatch[1]));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
