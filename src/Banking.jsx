@@ -35,13 +35,25 @@ export function Banking({ clientId }) {
   const [statementEnding, setStatementEnding] = useState("");
   const [checked, setChecked] = useState([]);
   const [pending, setPending] = useState(false);
+  const [plaid, setPlaid] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     setData(null);
+    setPlaid(null);
     setError("");
     setNotice("");
     setChecked([]);
+    fetch("/api/plaid")
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (response.ok) setPlaid(body);
+        else setPlaid({ configured: false, notice: body.error || "Sandbox credentials are not configured.", connections: [] });
+      })
+      .catch(() => {
+        if (!cancelled) setPlaid({ configured: false, notice: "Sandbox credentials are not configured.", connections: [] });
+      });
     fetch("/api/banking")
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
@@ -69,6 +81,123 @@ export function Banking({ clientId }) {
   const beginning = prior ? prior.statementEndingCents : 0;
   const parsedEnding = endingCents(statementEnding);
   const math = parsedEnding === null ? null : reconciliationMath(beginning, parsedEnding, openLines.filter((line) => checked.includes(line.id)).map((line) => line.amountCents));
+
+  const sandboxAccounts = new Map(
+    (plaid?.connections || []).flatMap((connection) => connection.accounts.map((account) => [account.bankAccountId, connection])),
+  );
+
+  function loadPlaidLink() {
+    if (window.Plaid) return Promise.resolve(window.Plaid);
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+      script.onload = () => (window.Plaid ? resolve(window.Plaid) : reject(new Error("Plaid Link did not load.")));
+      script.onerror = () => reject(new Error("Plaid Link did not load."));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function refreshBanking(nextSelectedId) {
+    const response = await fetch("/api/banking");
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "Could not load banking.");
+    setData(body);
+    if (nextSelectedId) setSelectedId(nextSelectedId);
+    else if (!selectedId) setSelectedId(body.accounts[0]?.id || "");
+  }
+
+  async function connectSandbox() {
+    if (!plaid?.configured) {
+      setNotice("");
+      setError(plaid?.notice || "Sandbox credentials are not configured.");
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      const tokenResponse = await fetch("/api/plaid/link-token", { method: "POST" });
+      const tokenBody = await tokenResponse.json().catch(() => ({}));
+      if (!tokenResponse.ok || !tokenBody.linkToken) throw new Error(tokenBody.error || "Sandbox Link did not start.");
+      const PlaidLink = await loadPlaidLink();
+      if (typeof PlaidLink?.create !== "function") throw new Error("Plaid Link did not load.");
+      await new Promise((resolve, reject) => {
+        const handler = PlaidLink.create({
+          token: tokenBody.linkToken,
+          onSuccess: async (publicToken) => {
+            try {
+              const response = await fetch("/api/plaid/exchange", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ publicToken }),
+              });
+              const body = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(body.error || "The sandbox bank did not connect.");
+              setPlaid(body);
+              await refreshBanking(body.connections?.at(-1)?.accounts?.[0]?.bankAccountId);
+              setNotice("Sandbox accounts are connected. Review each line on Transactions before it posts.");
+              resolve();
+            } catch (exchangeError) {
+              reject(exchangeError);
+            }
+          },
+          onExit: (exitError) => {
+            if (exitError) reject(new Error(exitError.display_message || exitError.error_message || "Sandbox Link closed."));
+            else resolve();
+          },
+        });
+        if (typeof handler?.open !== "function") {
+          reject(new Error("Plaid Link did not open."));
+          return;
+        }
+        handler.open();
+      });
+    } catch (connectError) {
+      setError(connectError.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function syncConnection(connectionId) {
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/plaid/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connectionId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (body.connections) setPlaid((current) => ({ ...(current || {}), ...body, connections: body.connections }));
+      if (!response.ok) throw new Error(body.error || "Sandbox sync failed.");
+      await refreshBanking();
+      setNotice(body.imported ? `${body.imported} sandbox ${body.imported === 1 ? "line is" : "lines are"} waiting for review.` : "Sandbox sync found no new lines.");
+    } catch (syncError) {
+      setError(syncError.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function disconnect(connectionId) {
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/plaid/disconnect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connectionId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "The sandbox connection was not disconnected.");
+      setPlaid(body);
+      setNotice("Sandbox connection disconnected. Existing statement lines stay for review.");
+    } catch (disconnectError) {
+      setError(disconnectError.message);
+    } finally {
+      setPending(false);
+    }
+  }
 
   async function addAccount(event) {
     event.preventDefault();
@@ -124,9 +253,48 @@ export function Banking({ clientId }) {
           <h1>Banking</h1>
           <p>Accounts, statement lines, and reconciliation for this client.</p>
         </div>
+        <Button disabled={pending || !plaid} onClick={connectSandbox}>Connect Bank Account</Button>
       </div>
-      {error ? <p className="form-error books-error" role="alert">{error}</p> : null}
+      {error ? <p className="form-error banking-alert" role="alert">{error}</p> : null}
       {notice ? <p className="books-note">{notice}</p> : null}
+      <section className="card plaid-panel" aria-label="Sandbox bank connection">
+        <div className="card-header">
+          <div>
+            <h2>Sandbox bank connection</h2>
+            <p>{plaid?.notice || "Sandbox credentials are not configured."}</p>
+          </div>
+        </div>
+        {plaid?.connections?.length ? plaid.connections.map((connection) => (
+          <div className="plaid-connection" key={connection.id}>
+            <div className="plaid-connection-head">
+              <div>
+                <b>{connection.institutionName}</b>
+                <small>{connection.statusLabel}</small>
+              </div>
+              <div className="plaid-actions">
+                <Button variant="secondary" disabled={pending || connection.status !== "connected" || !plaid.configured} onClick={() => syncConnection(connection.id)}>Sync transactions</Button>
+                <Button variant="secondary" disabled={pending || connection.status === "disconnected"} onClick={() => disconnect(connection.id)}>Disconnect</Button>
+              </div>
+            </div>
+            {connection.error ? <p className="form-error" role="alert">{connection.error}</p> : null}
+            <div className="plaid-history" aria-label="Sync history">
+              <b>Sync history</b>
+              {connection.history?.length ? connection.history.map((row) => (
+                <p key={row.id}>{row.createdLabel} · {row.status === "ok" ? `${row.imported} new` : "Error"}{row.error ? ` · ${row.error}` : ""}</p>
+              )) : <p>No syncs yet.</p>}
+            </div>
+            <div className="plaid-accounts">
+              {connection.accounts.map((account) => (
+                <div key={account.id}>
+                  <b>{account.name}{account.mask ? ` ··${account.mask}` : ""}</b>
+                  <span>{account.kindLabel}</span>
+                  <strong>{account.balance || "Balance unavailable"}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        )) : <p className="banking-empty">No sandbox accounts connected.</p>}
+      </section>
       <div className="banking-layout">
         <section className="card">
           <div className="card-header"><div><h2>Accounts</h2><p>Not a live bank connection.</p></div></div>
@@ -146,7 +314,7 @@ export function Banking({ clientId }) {
               {data.accounts.map((account) => (
                 <button className={account.id === selectedId ? "selected" : ""} type="button" key={account.id} onClick={() => { setSelectedId(account.id); setChecked([]); }}>
                   <b>{account.name}</b>
-                  <small>{account.kindLabel} · ledger {account.ledgerCode} · Not a live bank connection</small>
+                  <small>{account.kindLabel} · ledger {account.ledgerCode}{sandboxAccounts.has(account.id) ? ` · ${sandboxAccounts.get(account.id).statusLabel}` : " · Not a live bank connection"}</small>
                 </button>
               ))}
             </div>
@@ -161,7 +329,7 @@ export function Banking({ clientId }) {
                 {lines.map((line) => (
                   <tr key={line.id}>
                     <td>{line.postedOnLabel}</td>
-                    <td><b>{line.description}</b></td>
+                    <td><b>{line.description}</b>{line.merchantName ? <small>{line.merchantName}</small> : null}</td>
                     <td>{formatSigned(line.amountCents)}</td>
                     <td>{line.cleared ? "Cleared" : line.statusLabel}</td>
                   </tr>
