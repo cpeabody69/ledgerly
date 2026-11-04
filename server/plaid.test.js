@@ -67,6 +67,13 @@ async function sendJson(jar, base, method, pathname, payload) {
   return { response, body, text };
 }
 
+async function statementsFor(jar, base, basis = "accrual") {
+  const params = new URLSearchParams({ period: "May 1 – May 31", basis });
+  const response = await jar.fetch(`${base}/api/statements?${params}`);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
 function jsonResponse(body) {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
@@ -225,6 +232,10 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       assert.equal(beforeLedger.trialBalance.debitsCents, 0);
       assert.equal(beforeLedger.trialBalance.debitsCents, beforeLedger.trialBalance.creditsCents);
       assert.equal(beforeLedger.foots, true);
+      const beforeStatements = await statementsFor(olivia, base);
+      assert.equal(beforeStatements.profitAndLoss.incomeCents, 0);
+      assert.equal(beforeStatements.profitAndLoss.expenseCents, 0);
+      assert.equal(beforeStatements.balanceSheet.balances, true);
 
       const again = await sendJson(olivia, base, "POST", "/api/plaid/sync", { connectionId: connected.body.connections[0].id });
       seen.push(again.text);
@@ -257,6 +268,18 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       assert.equal(posted.foots, true);
       assert.equal(posted.trialBalance.debitsCents, posted.trialBalance.creditsCents);
       assert.equal(posted.trialBalance.debitsCents, 633);
+      const may = await statementsFor(olivia, base);
+      assert.equal(may.profitAndLoss.incomeCents, 0);
+      assert.equal(may.profitAndLoss.expenseCents, 633);
+      assert.equal(may.profitAndLoss.netIncomeCents, -633);
+      assert.equal(may.profitAndLoss.expenseRows.find((row) => row.code === "6400").cents, 633);
+      assert.equal(may.balanceSheet.assets.find((row) => row.code === "1000").cents, -633);
+      assert.equal(may.balanceSheet.balances, true);
+      assert.equal(may.balanceSheet.assetsCents, may.balanceSheet.liabilitiesCents + may.balanceSheet.equityCents);
+      const cashBasis = await statementsFor(olivia, base, "cash");
+      assert.equal(cashBasis.profitAndLoss.expenseCents, 633);
+      assert.equal(cashBasis.profitAndLoss.netIncomeCents, -633);
+      assert.equal(cashBasis.balanceSheet.balances, true);
       const reconciled = await sendJson(olivia, base, "POST", "/api/reconciliations", {
         bankAccountId: coffee.bankAccountId,
         statementDate: "2026-05-31",
@@ -281,7 +304,34 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       const stillTwo = await (await olivia.fetch(`${base}/api/transactions`)).json();
       assert.equal(stillTwo.transactions.length, 2);
 
+      const otherIncome = lines.accounts.find((account) => account.code === "4100");
+      assert.notEqual(otherIncome.id, deposit.suggestion.accountId);
+      const changed = await sendJson(olivia, base, "POST", `/api/transactions/${deposit.id}/categorize`, { accountId: otherIncome.id });
+      assert.equal(changed.response.status, 200);
+      assert.equal(changed.body.entry.debitCents, changed.body.entry.creditCents);
+      assert.equal(changed.body.entry.debitCents, 3000);
+      assert.equal(changed.body.transaction.category.startsWith("4100"), true);
+      const afterChange = await statementsFor(olivia, base);
+      assert.equal(afterChange.profitAndLoss.incomeCents, 3000);
+      assert.equal(afterChange.profitAndLoss.expenseCents, 633);
+      assert.equal(afterChange.profitAndLoss.netIncomeCents, 2367);
+      assert.equal(afterChange.profitAndLoss.incomeRows.find((row) => row.code === "4100").cents, 3000);
+      assert.equal(afterChange.profitAndLoss.incomeRows.some((row) => row.code === "4000"), false);
+      assert.equal(afterChange.balanceSheet.assets.find((row) => row.code === "1000").cents, 2367);
+      assert.equal(afterChange.balanceSheet.balances, true);
+      const changedLedger = await (await olivia.fetch(`${base}/api/ledger`)).json();
+      assert.equal(changedLedger.entries.length, 2);
+      assert.equal(changedLedger.foots, true);
+      assert.equal(changedLedger.trialBalance.debitsCents, changedLedger.trialBalance.creditsCents);
+
       const db = new DatabaseSync(dbPath);
+      const audits = db.prepare(
+        "SELECT action, entity_type, entity_id FROM audit_events WHERE action IN ('transaction.categorized', 'journal.posted') ORDER BY created_at",
+      ).all();
+      assert.equal(audits.filter((row) => row.action === "transaction.categorized" && row.entity_id === coffee.id).length, 1);
+      assert.equal(audits.filter((row) => row.action === "transaction.categorized" && row.entity_id === deposit.id).length, 1);
+      assert.equal(audits.filter((row) => row.action === "journal.posted" && row.entity_id === categorized.body.entry.id).length, 1);
+      assert.equal(audits.filter((row) => row.action === "journal.posted" && row.entity_id === changed.body.entry.id).length, 1);
       const stored = db.prepare("SELECT access_token FROM plaid_items").all();
       assert.equal(stored.length, 1);
       assert.equal(stored[0].access_token, ACCESS_TOKEN);
