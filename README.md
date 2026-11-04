@@ -94,11 +94,15 @@ Explore Ledger AI opens an assistant for the open client. It reads that client�
 
 The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MODEL_API_KEY`, and `LEDGERLY_MODEL_URL`. `LEDGERLY_MODEL_NAME` selects the model; when it is empty, the request asks the endpoint for its reasoning model, with structured output and the read-only tools. No key means the same tools run on the stored books and the assistant says the external model is not configured. Client figures stay in Ledgerly. This build uses synthetic clients and does not train on them.
 
+## Firm subscription
+
+Settings shows Ledgerly’s plan for the firm. The plan is Practice. The seat count is the number of people who can be invited to sign in, and the seats in use are the owner, managers, and staff already on the firm. An owner changes the seat count. When every seat is in use, another invite is refused until the count is raised. Recording a firm payment stores it on the firm. It does not post a journal entry on a client, and it does not mark a client invoice paid.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:
 
 - The dashboard’s recent transactions and cash-flow card
-- The Banking and Settings overview cards
+- The Banking overview cards, and the Settings overview, activity, and rules cards
 - Add company, exports other than a statement, notifications, and personal profile
 - Budget vs. actuals, accounts receivable, and expense summary, which stay disabled
