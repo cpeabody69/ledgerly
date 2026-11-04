@@ -11,6 +11,7 @@ import { ensureInvoices } from "./invoices.js";
 import { ensureExpenses } from "./expenses.js";
 import { ensureTime } from "./time.js";
 import { ensurePortal, loadPortalSession, portalPayload, signInPortal, signOutPortal } from "./portal.js";
+import { ensureTax } from "./tax.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -119,6 +120,7 @@ export function openDatabase(dbPath) {
   ensureExpenses(db);
   ensureTime(db);
   ensurePortal(db);
+  ensureTax(db);
   return db;
 }
 
