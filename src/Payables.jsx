@@ -37,9 +37,10 @@ async function readJson(response) {
 }
 
 function badgeTone(status) {
-  if (status === "posted") return "green";
+  if (status === "posted" || status === "recorded") return "green";
+  if (status === "approved") return "blue";
   if (status === "awaiting_approval") return "amber";
-  if (status === "void") return "red";
+  if (status === "rejected" || status === "void") return "red";
   return "neutral";
 }
 
@@ -47,6 +48,8 @@ const TABS = [
   ["dashboard", "Dashboard"],
   ["bills", "Bills"],
   ["vendors", "Vendors"],
+  ["approvals", "Approvals"],
+  ["payments", "Payments"],
 ];
 
 export function Payables({ clientId }) {
@@ -111,6 +114,7 @@ export function Payables({ clientId }) {
         <div className="header-actions">
           {section === "vendors" ? <Button icon="plus" onClick={() => { setCreating("vendor"); setVendorId(null); }}>New vendor</Button> : null}
           {section === "bills" ? <Button icon="plus" onClick={() => { setCreating("bill"); setBillId(null); }} disabled={!vendors.length}>New bill</Button> : null}
+          {section === "payments" ? <Button icon="plus" onClick={() => setCreating("payment")} disabled={!bills.some((bill) => bill.openCents > 0)}>Record payment</Button> : null}
         </div>
       </div>
       <div className="tab-bar" role="tablist" aria-label="Accounts payable">
@@ -126,12 +130,20 @@ export function Payables({ clientId }) {
       {section === "vendors" ? (
         <VendorList vendors={visibleVendors} total={vendors.length} query={query} onQuery={setQuery} onOpen={(id) => { setBillId(null); setVendorId(id); }} />
       ) : null}
+      {section === "approvals" ? (
+        <ApprovalList bills={bills.filter((bill) => bill.status === "awaiting_approval" || bill.status === "approved" || bill.status === "rejected")} onOpen={(id) => { setVendorId(null); setBillId(id); }} />
+      ) : null}
+      {section === "payments" ? (
+        <PaymentList payments={payload?.payments || []} onChanged={load} />
+      ) : null}
       {openVendor && !creating ? <VendorDrawer vendor={openVendor} onClose={() => setVendorId(null)} onEdit={() => setCreating("vendor")} /> : null}
       {openBill && !creating ? (
         <BillDrawer
           bill={openBill}
+          canApprove={!!payload?.canApprove}
           onClose={() => setBillId(null)}
           onEdit={() => setCreating("bill")}
+          onPay={() => setCreating("payment")}
           onChanged={async () => {
             const next = await load();
             if (!next?.bills?.some((bill) => bill.id === openBill.id && bill.status !== "void")) setBillId(null);
@@ -166,6 +178,20 @@ export function Payables({ clientId }) {
           }}
         />
       ) : null}
+      {creating === "payment" ? (
+        <PaymentForm
+          bills={bills.filter((bill) => bill.openCents > 0)}
+          cashAccounts={payload?.cashAccounts || []}
+          initialBillId={openBill?.openCents > 0 ? openBill.id : ""}
+          onClose={() => setCreating("")}
+          onSaved={async () => {
+            await load();
+            setCreating("");
+            setBillId(null);
+            setSection("payments");
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -175,9 +201,9 @@ function Dashboard({ dashboard, bills, onOpen }) {
     ["Outstanding", dashboard?.outstanding, "Posted bills still open"],
     ["Due this week", dashboard?.dueThisWeek, "Open bills due in the next 7 days"],
     ["Overdue", dashboard?.overdue, "Open bills past the due date"],
-    ["Awaiting approval", dashboard?.awaitingApproval, "Saved bills that are not posted"],
+    ["Pending", dashboard?.awaitingApproval, "Bills waiting for approval"],
   ];
-  const attention = bills.filter((bill) => bill.status === "posted" || bill.status === "awaiting_approval");
+  const attention = bills.filter((bill) => bill.status === "awaiting_approval" || bill.status === "approved" || (bill.status === "posted" && bill.openCents > 0));
   return (
     <>
       <div className="invoice-metrics">
@@ -212,7 +238,7 @@ function Dashboard({ dashboard, bills, onOpen }) {
                     <td>{bill.invoiceNumber}</td>
                     <td>{bill.dueDateLabel}</td>
                     <td><span className={`badge ${badgeTone(bill.status)}`}>{bill.statusLabel}</span></td>
-                    <td><strong>{bill.total}</strong></td>
+                    <td><strong>{bill.status === "posted" ? bill.open : bill.total}</strong></td>
                   </tr>
                 ))}
               </tbody>
@@ -336,14 +362,20 @@ function VendorDrawer({ vendor, onClose, onEdit }) {
       </div>
       <div className="drawer-section">
         <h3>Payment history</h3>
-        {!vendor.payments.length ?         <p className="books-note">No payments recorded. Paying a bill is a later step, and nothing is sent to a bank.</p> : null}
+        {!vendor.payments.length ? <p className="books-note">No payments recorded. A payment credits cash or a bank account. It does not start a transfer.</p> : (
+          <ul className="plain-list">
+            {vendor.payments.map((payment) => (
+              <li key={payment.id}><b>{payment.reference}</b> · {payment.paidOnLabel} · {payment.amount} · {payment.statusLabel}</li>
+            ))}
+          </ul>
+        )}
       </div>
     </aside>
     </>
   );
 }
 
-function BillDrawer({ bill, onClose, onEdit, onChanged }) {
+function BillDrawer({ bill, canApprove, onClose, onEdit, onPay, onChanged }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const editable = bill.status === "draft" || bill.status === "awaiting_approval";
@@ -380,6 +412,7 @@ function BillDrawer({ bill, onClose, onEdit, onChanged }) {
           <div><dt>Due</dt><dd>{bill.dueDateLabel}</dd></div>
           <div><dt>Tax</dt><dd>{bill.tax}</dd></div>
           <div><dt>File</dt><dd>{bill.documentName || "None"}</dd></div>
+          <div><dt>Open</dt><dd>{bill.status === "posted" ? bill.open : "—"}</dd></div>
           <div><dt>Journal</dt><dd>{bill.journalReference || "Not posted"}</dd></div>
           <div><dt>Notes</dt><dd>{bill.notes || "—"}</dd></div>
         </dl>
@@ -390,12 +423,26 @@ function BillDrawer({ bill, onClose, onEdit, onChanged }) {
           <p key={line.id} className="books-note">{line.description} · {line.accountCode} {line.accountName} · {line.amount} + tax {line.tax}</p>
         ))}
       </div>
+      <div className="drawer-section">
+        <h3>Approval history</h3>
+        {!bill.approvals?.length ? <p className="books-note">No approval decisions yet.</p> : (
+          <ul className="plain-list">
+            {bill.approvals.map((decision) => (
+              <li key={decision.id}><b>{decision.actionLabel}</b> · {decision.actorName} · {decision.createdAtLabel}{decision.note ? ` · ${decision.note}` : ""}</li>
+            ))}
+          </ul>
+        )}
+      </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {!canApprove && (bill.status === "awaiting_approval" || bill.status === "approved") ? <p className="books-note">An owner or a manager approves and posts bills.</p> : null}
       <div className="modal-footer">
         {editable ? <Button variant="secondary" onClick={onEdit} disabled={pending}>Edit</Button> : null}
         {bill.status === "draft" ? <Button onClick={() => act(`/api/payables/bills/${bill.id}/submit`)} disabled={pending}>Submit for approval</Button> : null}
-        {bill.status === "awaiting_approval" ? <Button onClick={() => act(`/api/payables/bills/${bill.id}/post`)} disabled={pending}>Post bill</Button> : null}
-        {bill.status !== "void" ? <Button variant="secondary" onClick={() => act(`/api/payables/bills/${bill.id}/void`)} disabled={pending}>Void</Button> : null}
+        {canApprove && bill.status === "awaiting_approval" ? <Button onClick={() => act(`/api/payables/bills/${bill.id}/approve`)} disabled={pending}>Approve</Button> : null}
+        {canApprove && bill.status === "awaiting_approval" ? <Button variant="secondary" onClick={() => act(`/api/payables/bills/${bill.id}/reject`)} disabled={pending}>Reject</Button> : null}
+        {canApprove && bill.status === "approved" ? <Button onClick={() => act(`/api/payables/bills/${bill.id}/post`)} disabled={pending}>Post bill</Button> : null}
+        {bill.openCents > 0 ? <Button variant="secondary" onClick={onPay} disabled={pending}>Record payment</Button> : null}
+        {bill.status !== "void" && bill.status !== "rejected" ? <Button variant="secondary" onClick={() => act(`/api/payables/bills/${bill.id}/void`)} disabled={pending}>Void</Button> : null}
       </div>
     </aside>
     </>
@@ -601,6 +648,171 @@ function BillForm({ bill, vendors, accounts, clientId, onClose, onSaved }) {
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           {duplicate ? <Button type="button" variant="secondary" disabled={pending} onClick={() => save(true)}>Save anyway</Button> : null}
           <Button type="submit" disabled={pending || !invoiceNumber.trim()}>{pending ? "Saving…" : "Save draft"}</Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ApprovalList({ bills, onOpen }) {
+  const groups = [
+    ["awaiting_approval", "Pending"],
+    ["approved", "Approved"],
+    ["rejected", "Rejected"],
+  ];
+  return (
+    <section className="card table-card">
+      <div className="card-header">
+        <div>
+          <h2>Approvals</h2>
+          <p>Pending, approved, and rejected bills. Each decision keeps the person and the time.</p>
+        </div>
+      </div>
+      {!bills.length ? (
+        <div className="empty-state">
+          <b>No bills have been submitted</b>
+          <p>Submit a draft when it is ready for an owner or a manager.</p>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Vendor</th><th>Invoice</th><th>Status</th><th>Latest decision</th><th>When</th><th>Amount</th></tr></thead>
+            <tbody>
+              {groups.flatMap(([status]) => bills.filter((bill) => bill.status === status)).map((bill) => {
+                const latest = bill.approvals?.[bill.approvals.length - 1];
+                return (
+                  <tr key={bill.id} onClick={() => onOpen(bill.id)}>
+                    <td><b>{bill.vendorName}</b></td>
+                    <td>{bill.invoiceNumber}</td>
+                    <td><span className={`badge ${badgeTone(bill.status)}`}>{bill.statusLabel}</span></td>
+                    <td>{latest ? `${latest.actionLabel} · ${latest.actorName}` : "—"}</td>
+                    <td>{latest?.createdAtLabel || "—"}</td>
+                    <td><strong>{bill.total}</strong></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PaymentList({ payments, onChanged }) {
+  const [error, setError] = useState("");
+  const [pendingId, setPendingId] = useState("");
+
+  async function voidPayment(payment) {
+    setPendingId(payment.id);
+    setError("");
+    const response = await fetch(`/api/payables/payments/${payment.id}/void`, { method: "POST" });
+    const body = await readJson(response);
+    setPendingId("");
+    if (!response.ok) {
+      setError(body.error || "The payment was not voided.");
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <section className="card table-card">
+      <div className="card-header">
+        <div>
+          <h2>Payments</h2>
+          <p>A payment debits accounts payable and credits the cash or bank account you choose. Nothing is sent to a bank.</p>
+        </div>
+      </div>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {!payments.length ? (
+        <div className="empty-state">
+          <b>No payments yet</b>
+          <p>Record a payment against a posted bill. A partial payment leaves the rest outstanding.</p>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Vendor</th><th>Invoice</th><th>Date</th><th>Reference</th><th>Account</th><th>Status</th><th>Amount</th><th></th></tr></thead>
+            <tbody>
+              {payments.map((payment) => (
+                <tr key={payment.id}>
+                  <td><b>{payment.vendorName}</b></td>
+                  <td>{payment.invoiceNumber}</td>
+                  <td>{payment.paidOnLabel}</td>
+                  <td>{payment.reference}</td>
+                  <td>{payment.accountCode} {payment.accountName}</td>
+                  <td><span className={`badge ${badgeTone(payment.status)}`}>{payment.statusLabel}</span></td>
+                  <td><strong>{payment.amount}</strong></td>
+                  <td>{payment.status === "recorded" ? <button className="text-button" type="button" disabled={pendingId === payment.id} onClick={() => voidPayment(payment)}>Void</button> : null}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PaymentForm({ bills, cashAccounts, initialBillId, onClose, onSaved }) {
+  const [billId, setBillId] = useState(initialBillId || bills[0]?.id || "");
+  const [paidOn, setPaidOn] = useState(todayInput());
+  const [amount, setAmount] = useState("");
+  const [reference, setReference] = useState("");
+  const [accountId, setAccountId] = useState(cashAccounts[0]?.id || "");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const bill = bills.find((item) => item.id === billId);
+
+  async function save(event) {
+    event.preventDefault();
+    if (!bill || pending) return;
+    setPending(true);
+    setError("");
+    const response = await fetch(`/api/payables/bills/${bill.id}/payments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paidOn, amount, reference, accountId }),
+    });
+    const body = await readJson(response);
+    setPending(false);
+    if (!response.ok) {
+      setError(body.error || "The payment was not recorded.");
+      return;
+    }
+    onSaved(body.payment);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form className="modal" role="dialog" aria-modal="true" aria-labelledby="payment-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={save}>
+        <div className="modal-header">
+          <div>
+            <h2 id="payment-title">Record payment</h2>
+            <p>This credits cash or a bank account in the journal. It does not start a transfer.</p>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="form-grid">
+          <label className="field full"><span>Bill</span>
+            <select value={billId} onChange={(event) => setBillId(event.target.value)}>
+              {bills.map((item) => <option value={item.id} key={item.id}>{item.vendorName} · {item.invoiceNumber} · {item.open} open</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Date</span><input type="date" value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required /></label>
+          <label className="field"><span>Amount</span><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={bill ? bill.open.replace("$", "") : "0.00"} /></label>
+          <label className="field"><span>Reference</span><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Check or confirmation" /></label>
+          <label className="field"><span>Cash or bank account</span>
+            <select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+              {cashAccounts.map((account) => <option value={account.id} key={account.id}>{account.code} {account.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <div className="modal-footer">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={pending || !reference.trim() || !amount.trim() || !accountId}>{pending ? "Saving…" : "Record payment"}</Button>
         </div>
       </form>
     </div>
