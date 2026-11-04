@@ -4,6 +4,7 @@ import path from "node:path";
 import { createClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { archiveClient, listFirm, readClient, updateClient } from "./clients.js";
 import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
+import { listDocumentReviews, storeDocumentReview } from "./document-reviews.js";
 import { listPortal, readPortalDocument, submitPortalFile } from "./portal.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
@@ -485,12 +486,34 @@ async function handle(req, res, db, options) {
     return;
   }
 
+  if (pathname === "/api/documents/reviews" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await listDocumentReviews(db, session);
+    send(res, result.status, result.payload);
+    return;
+  }
+
   if (pathname === "/api/documents/folders" && req.method === "POST") {
     if (!session) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
     const result = createFolder(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const documentReview = pathname.match(/^\/api\/documents\/([^/]+)\/review$/);
+  if (documentReview && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await storeDocumentReview(db, session, decodeURIComponent(documentReview[1]), await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;

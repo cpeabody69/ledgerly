@@ -61,6 +61,7 @@ export function Documents({ clientId }) {
   const [folderId, setFolderId] = useState("");
   const [fileId, setFileId] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [reviews, setReviews] = useState(null);
 
   function load(next = {}) {
     const params = new URLSearchParams();
@@ -84,6 +85,25 @@ export function Documents({ clientId }) {
       setError(reason.message || "Could not load documents.");
     });
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    setReviews(null);
+    fetch("/api/documents/reviews").then(async (response) => {
+      const body = await readJson(response);
+      if (cancelled) return;
+      if (!response.ok) {
+        setError(body.error || "Could not load the review queue.");
+        return;
+      }
+      setReviews(body);
+    }).catch(() => {
+      if (!cancelled) setError("Could not load the review queue.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +148,11 @@ export function Documents({ clientId }) {
         </div>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <ReviewQueue reviews={reviews} onChanged={async () => {
+        const response = await fetch("/api/documents/reviews");
+        const body = await readJson(response);
+        if (response.ok) setReviews(body);
+      }} />
       <section className="card table-card">
         <div className="card-header">
           <div>
@@ -220,6 +245,133 @@ export function Documents({ clientId }) {
         />
       ) : null}
     </div>
+  );
+}
+
+const KINDS = ["bank statement", "receipt", "vendor invoice", "customer invoice", "W-2", "1099", "payroll report", "financial statement", "tax document", "contract"];
+
+function Confidence({ suggestion }) {
+  const width = `${Math.round((suggestion.confidence || 0) * 100)}%`;
+  return (
+    <span className="confidence" title={`${suggestion.confidenceLabel} confidence`}>
+      <i><b style={{ width }} /></i>
+      <span>{suggestion.confidenceLabel} · {width}</span>
+    </span>
+  );
+}
+
+function ReviewQueue({ reviews, onChanged }) {
+  const queue = reviews?.queue || [];
+  const reviewed = reviews?.reviewed || [];
+  return (
+    <section className="card review-card">
+      <div className="card-header">
+        <div>
+          <h2>AI review</h2>
+          <p>Suggestions are labeled AI-generated. Accepting stores the review. It does not post a journal, create a bill, or choose a tax treatment.</p>
+        </div>
+      </div>
+      {reviews?.notice ? <p className="assistant-banner">{reviews.notice}</p> : null}
+      {reviewed.length ? (
+        <div className="review-list">
+          {reviewed.map((review) => (
+            <article className="review-row" key={review.id}>
+              <div className="review-title">
+                <b>{review.fileName}</b>
+                <span className="badge green">{review.statusLabel}</span>
+                <span className="badge amber">{review.label}</span>
+              </div>
+              <p>{review.kind}{review.party ? ` · ${review.party}` : ""}{review.date ? ` · ${review.date}` : ""}{review.amount ? ` · ${review.amount}` : ""}</p>
+            </article>
+          ))}
+        </div>
+      ) : null}
+      {!reviews ? <p className="books-note">Loading suggestions…</p> : null}
+      {reviews && !queue.length && !reviewed.length ? <p className="books-note">No stored files are waiting for review.</p> : null}
+      <div className="review-list">
+        {queue.map((item) => <ReviewItem item={item} key={item.fileId} onChanged={onChanged} />)}
+      </div>
+    </section>
+  );
+}
+
+function ReviewItem({ item, onChanged }) {
+  const suggestion = item.suggestion;
+  const [kind, setKind] = useState(suggestion.kind === "unknown" ? "receipt" : suggestion.kind);
+  const [party, setParty] = useState(suggestion.party || "");
+  const [date, setDate] = useState(suggestion.date || "");
+  const [amount, setAmount] = useState(suggestion.amount || "");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
+
+  async function accept() {
+    setPending(true);
+    setError("");
+    const response = await fetch(`/api/documents/${item.fileId}/review`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "accept" }),
+    });
+    const body = await readJson(response);
+    setPending(false);
+    if (!response.ok) {
+      setError(body.error || "The review was not stored.");
+      return;
+    }
+    onChanged();
+  }
+
+  async function correct(event) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    const response = await fetch(`/api/documents/${item.fileId}/review`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "correct", kind, party, date, amount }),
+    });
+    const body = await readJson(response);
+    setPending(false);
+    if (!response.ok) {
+      setError(body.error || "The correction was not stored.");
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <article className="review-row">
+      <div className="review-title">
+        <b>{item.name}</b>
+        <span className="badge amber">{suggestion.label}</span>
+        <Confidence suggestion={suggestion} />
+      </div>
+      <dl className="review-fields">
+        <div><dt>Kind</dt><dd>{suggestion.kind}</dd></div>
+        <div><dt>Vendor or payer</dt><dd>{suggestion.party || "—"}</dd></div>
+        <div><dt>Date</dt><dd>{suggestion.date || "—"}</dd></div>
+        <div><dt>Amount</dt><dd>{suggestion.amount || "—"}</dd></div>
+      </dl>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <div className="header-actions">
+        <Button onClick={accept} disabled={pending}>Accept suggestion</Button>
+        <Button variant="secondary" onClick={() => setCorrecting((open) => !open)}>Correct</Button>
+      </div>
+      {correcting ? (
+        <form className="review-correct" onSubmit={correct}>
+          <label className="field"><span>Kind</span>
+            <select value={kind} onChange={(event) => setKind(event.target.value)}>
+              {KINDS.map((itemKind) => <option key={itemKind}>{itemKind}</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Vendor or payer</span><input value={party} onChange={(event) => setParty(event.target.value)} /></label>
+          <label className="field"><span>Date</span><input value={date} onChange={(event) => setDate(event.target.value)} placeholder="2026-03-04" /></label>
+          <label className="field"><span>Amount</span><input value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+          <Button type="submit" disabled={pending}>Save correction</Button>
+        </form>
+      ) : null}
+    </article>
   );
 }
 
