@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,8 +7,9 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { start } from "./app.js";
+import { loadPlaidEnv } from "./plaid.js";
 
-const ENV_KEYS = ["PLAID_CLIENT_ID", "PLAID_SECRET", "PLAID_ENV", "PLAID_REDIRECT_URI", "PLAID_WEBHOOK"];
+const ENV_KEYS = ["PLAID_CLIENT_ID", "PLAID_SECRET", "PLAID_ENV"];
 const ACCESS_TOKEN = "access-sandbox-secret-token";
 
 function cookieJar() {
@@ -74,6 +75,18 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
   const previous = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   const originalFetch = globalThis.fetch;
   const calls = [];
+  for (const key of ENV_KEYS) delete process.env[key];
+  const envDir = await mkdtemp(path.join(tmpdir(), "ledgerly-plaid-env-"));
+  const envFile = path.join(envDir, ".env");
+  writeFileSync(envFile, "PLAID_CLIENT_ID=from-file\nPLAID_SECRET=from-file-secret\nPLAID_ENV=sandbox\nPLAID_WEBHOOK=https://nope.example\nOTHER=1\n");
+  delete process.env.PLAID_WEBHOOK;
+  delete process.env.OTHER;
+  loadPlaidEnv(envFile);
+  assert.equal(process.env.PLAID_CLIENT_ID, "from-file");
+  assert.equal(process.env.PLAID_SECRET, "from-file-secret");
+  assert.equal(process.env.PLAID_ENV, "sandbox");
+  assert.equal(process.env.PLAID_WEBHOOK, undefined);
+  assert.equal(process.env.OTHER, undefined);
   for (const key of ENV_KEYS) delete process.env[key];
   globalThis.fetch = async (url, options = {}) => {
     const target = String(url);
@@ -150,8 +163,6 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       assert.equal(calls.length, 0);
 
       process.env.PLAID_ENV = "sandbox";
-      process.env.PLAID_REDIRECT_URI = "https://ledgerly.example/plaid/oauth";
-      process.env.PLAID_WEBHOOK = "https://ledgerly.example/plaid/webhook";
       const linked = await sendJson(olivia, base, "POST", "/api/plaid/link-token");
       seen.push(linked.text);
       assert.equal(linked.response.status, 200);
@@ -159,8 +170,8 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
       const linkCall = calls.find((call) => call.url.endsWith("/link/token/create"));
       assert.equal(linkCall.body.client_id, "sandbox-client");
       assert.equal(linkCall.body.secret, "sandbox-secret-value");
-      assert.equal(linkCall.body.redirect_uri, "https://ledgerly.example/plaid/oauth");
-      assert.equal(linkCall.body.webhook, "https://ledgerly.example/plaid/webhook");
+      assert.equal(linkCall.body.redirect_uri, undefined);
+      assert.equal(linkCall.body.webhook, undefined);
       assert.deepEqual(linkCall.body.products, ["transactions"]);
       assert.equal(linked.text.includes("sandbox-secret-value"), false);
 
@@ -274,6 +285,9 @@ test("a sandbox sync does not duplicate, post, or cross a firm", async () => {
     });
   } finally {
     globalThis.fetch = originalFetch;
+    delete process.env.PLAID_WEBHOOK;
+    delete process.env.OTHER;
+    await rm(envDir, { recursive: true, force: true });
     for (const key of ENV_KEYS) {
       if (previous[key] === undefined) delete process.env[key];
       else process.env[key] = previous[key];
@@ -285,7 +299,8 @@ test("sandbox copy stays on the banking screen and off the ledger poster", () =>
   const banking = readFileSync(new URL("../src/Banking.jsx", import.meta.url), "utf8");
   const plaid = readFileSync(new URL("./plaid.js", import.meta.url), "utf8");
   assert.match(banking, /Sandbox credentials are not configured/);
-  assert.match(banking, /Connect sandbox bank/);
+  assert.match(banking, /Connect Bank Account/);
+  assert.doesNotMatch(plaid, /PLAID_REDIRECT_URI|PLAID_WEBHOOK/);
   assert.match(banking, /Not a live bank connection/);
   assert.match(banking, /disabled=\{!plaid\?\.configured/);
   assert.doesNotMatch(plaid, /postJournalEntry/);

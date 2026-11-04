@@ -100,17 +100,21 @@ Settings shows Ledgerly’s plan for the firm. The plan is Practice. The seat co
 
 ## Plaid sandbox
 
-Banking can connect a Plaid sandbox Item for the open client. The same bank accounts, statement lines, categorization, and reconciliation are used. Imported lines stay for review. A journal is posted only when a person categorizes or excludes a line. A second sync does not insert the same Plaid transaction again. Disconnecting stops new lines and leaves the ones already imported.
+Banking connects a sandbox bank for the open client through Plaid Link. The public token is exchanged on the server. The access token is stored in the database and is not sent back to the browser. Accounts and balances show on Banking. Transactions land on the existing review list. A second sync does not duplicate them. A journal is posted only when a person categorizes or excludes a line. Disconnecting stops new lines and leaves the ones already imported.
 
-Set these on the API process:
+Copy `.env.example` to `.env` in the repository root. `server/index.js` reads that file when the API process starts (`npm run dev` and `npm start`). Put the sandbox client id and sandbox secret from the Plaid dashboard (Team Settings → Keys, Sandbox) in `.env`. Set `PLAID_ENV=sandbox`. Restart the API after saving `.env`. The file is gitignored. Variables already present in the process environment are left as they are. No other Plaid variables are read.
 
-- `PLAID_CLIENT_ID`
-- `PLAID_SECRET`
-- `PLAID_ENV=sandbox`
+If `PLAID_CLIENT_ID` or `PLAID_SECRET` is unset, Connect Bank Account stays disabled and Banking says sandbox credentials are not configured. Any `PLAID_ENV` other than `sandbox` also leaves the button disabled.
 
-`PLAID_REDIRECT_URI` and `PLAID_WEBHOOK` are optional. When either is an `http` or `https` URL, it is sent on the sandbox link-token request. Sandbox keys come from the Plaid dashboard (Team Settings → Keys, Sandbox). Leave the secret there. Do not set a production secret or `PLAID_ENV=production`.
+Sandbox test, after the API has restarted with those three values:
 
-If `PLAID_CLIENT_ID` and `PLAID_SECRET` are unset, Connect sandbox bank stays disabled and Banking says sandbox credentials are not configured.
+1. Sign in and open a client. Go to Banking.
+2. Choose Connect Bank Account. Plaid Link opens.
+3. Search for First Platypus Bank (`ins_109508`), the non-OAuth sandbox institution in [Plaid’s sandbox institution list](https://plaid.com/docs/sandbox/institutions/).
+4. Sign in with the sandbox username `user_good` and password `pass_good` from [Plaid’s sandbox test credentials](https://plaid.com/docs/sandbox/test-credentials/). These are Plaid’s published test user, not a Ledgerly secret.
+5. Select the accounts Link offers and finish. Banking shows the connected accounts and their balances.
+6. Open Transactions. The imported lines are For review. Categorize one. That is the post. The others stay unposted.
+7. Choose Sync transactions. The same lines are not added again.
 
 ## Still the published picture
 

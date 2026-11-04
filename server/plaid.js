@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { formatMoney } from "../shared/money.js";
 import { addStatementLine } from "./banking.js";
 
@@ -48,16 +49,35 @@ function fail(status, error) {
   return { status, error };
 }
 
-function httpUrl(value) {
-  return /^https?:\/\//i.test(value) ? value : "";
+const PLAID_ENV_KEYS = ["PLAID_CLIENT_ID", "PLAID_SECRET", "PLAID_ENV"];
+
+export function loadPlaidEnv(filePath) {
+  let text = "";
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  for (const line of text.split(/\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!PLAID_ENV_KEYS.includes(key) || process.env[key]) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
 }
 
 export function plaidConfig(env = process.env) {
   const clientId = String(env.PLAID_CLIENT_ID || "").trim();
   const secret = String(env.PLAID_SECRET || "").trim();
   const plaidEnv = String(env.PLAID_ENV || "").trim();
-  const redirectUri = httpUrl(String(env.PLAID_REDIRECT_URI || "").trim());
-  const webhook = httpUrl(String(env.PLAID_WEBHOOK || "").trim());
   const keysPresent = Boolean(clientId && secret);
   const configured = keysPresent && plaidEnv === "sandbox";
   let notice = NOT_CONFIGURED;
@@ -67,8 +87,6 @@ export function plaidConfig(env = process.env) {
     clientId,
     secret,
     env: configured ? "sandbox" : "",
-    redirectUri,
-    webhook,
     configured,
     notice,
   };
@@ -189,8 +207,6 @@ export async function createLinkToken(db, session) {
     user: { client_user_id: session.user_id },
     products: ["transactions"],
   };
-  if (config.redirectUri) body.redirect_uri = config.redirectUri;
-  if (config.webhook) body.webhook = config.webhook;
   try {
     const created = await plaidPost(config, "/link/token/create", body);
     if (typeof created.link_token !== "string" || !created.link_token) {

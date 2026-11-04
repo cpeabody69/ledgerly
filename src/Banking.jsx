@@ -242,7 +242,7 @@ export function Banking({ clientId }) {
           <h1>Banking</h1>
           <p>Accounts, statement lines, and reconciliation for this client.</p>
         </div>
-        <Button disabled={!plaid?.configured || pending} onClick={connectSandbox}>Connect sandbox bank</Button>
+        <Button disabled={!plaid?.configured || pending} onClick={connectSandbox}>Connect Bank Account</Button>
       </div>
       <section className="card plaid-panel" aria-label="Sandbox bank connection">
         <div className="card-header">
