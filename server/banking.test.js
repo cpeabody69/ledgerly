@@ -272,6 +272,16 @@ test("bulk exclude posts a journal for every selected line", async () => {
   });
 });
 
+test("the dashboard save stores a transaction instead of only toasting", () => {
+  const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
+  assert.match(shell, /fetch\(`\/api\/transactions`/);
+  assert.match(shell, /method: `POST`/);
+  assert.match(shell, /if \(!response\.ok \|\| !body\.transaction\)/);
+  assert.match(shell, /if \(!row\?\.id\) return/);
+  assert.match(shell, /Stripe Payments/);
+  assert.doesNotMatch(shell, /Add transaction saved successfully/);
+});
+
 test("transactions and banking screens do not keep the published bank feed", () => {
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   const transactions = readFileSync(new URL("../src/Transactions.jsx", import.meta.url), "utf8");
