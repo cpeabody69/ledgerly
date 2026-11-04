@@ -13,6 +13,7 @@ import { ensureTime } from "./time.js";
 import { ensurePortal, loadPortalSession, portalPayload, signInPortal, signOutPortal } from "./portal.js";
 import { ensureTax } from "./tax.js";
 import { ensureAssistant } from "./assistant.js";
+import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscription.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -123,6 +124,7 @@ export function openDatabase(dbPath) {
   ensurePortal(db);
   ensureTax(db);
   ensureAssistant(db);
+  ensureSubscription(db);
   return db;
 }
 
@@ -194,6 +196,7 @@ export function sessionPayload(db, session) {
     clients,
     client: selected ? clientJson(selected) : null,
     members,
+    subscription: subscriptionSummary(db, session.firm_id),
   };
 }
 
@@ -307,6 +310,8 @@ export function inviteMember(db, session, input) {
   if (existing) return { status: 409, error: "That email already has an account." };
   const existingPortal = db.prepare("SELECT id FROM client_users WHERE email = ?").get(email);
   if (existingPortal) return { status: 409, error: "That email already has an account." };
+  const seats = openSeatError(db, session.firm_id);
+  if (seats) return seats;
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
