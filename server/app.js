@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { createClient, findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
-import { listFirm } from "./clients.js";
+import { createClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
+import { archiveClient, listFirm, readClient, updateClient } from "./clients.js";
 import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
 import { listPortal, readPortalDocument, submitPortalFile } from "./portal.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
@@ -199,7 +199,11 @@ async function handle(req, res, db, options) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
-    const result = listFirm(db, session);
+    const result = listFirm(db, session, {
+      q: url.searchParams.get("q") || "",
+      status: url.searchParams.get("status") || "",
+      assignee: url.searchParams.get("assignee") || "",
+    });
     send(res, result.status, result.payload);
     return;
   }
@@ -484,18 +488,28 @@ async function handle(req, res, db, options) {
     return;
   }
 
-  const clientMatch = pathname.match(/^\/api\/clients\/([^/]+)$/);
-  if (req.method === "GET" && clientMatch) {
+  const clientArchive = pathname.match(/^\/api\/clients\/([^/]+)\/archive$/);
+  if (clientArchive && req.method === "POST") {
     if (!session) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
-    const client = findClient(db, session, decodeURIComponent(clientMatch[1]));
-    if (!client) {
-      send(res, 404, { error: "Client not found." });
+    const result = archiveClient(db, session, decodeURIComponent(clientArchive[1]));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const clientMatch = pathname.match(/^\/api\/clients\/([^/]+)$/);
+  if (clientMatch && (req.method === "GET" || req.method === "PATCH")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
       return;
     }
-    send(res, 200, { client });
+    const clientId = decodeURIComponent(clientMatch[1]);
+    const result = req.method === "GET" ? readClient(db, session, clientId) : updateClient(db, session, clientId, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 

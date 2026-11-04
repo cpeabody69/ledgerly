@@ -179,6 +179,96 @@ test("adding a client creates empty books, review counts drop, and another firm 
   });
 });
 
+test("a profile keeps the tax id in the firm, and archive keeps the books", async () => {
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const created = await postJson(olivia, base, "/api/clients", {
+      name: "Maple Goods",
+      legalName: "Maple Goods LLC",
+      industry: "Retail",
+      businessType: "LLC",
+      contactName: "Mina Cole",
+      contactEmail: "mina@maple.example",
+      address: "12 Maple Street",
+      taxId: "12-3456789",
+      fiscalYearStart: "July",
+      accountingMethod: "cash",
+      assignedUserId: signedIn.user.id,
+      status: "inactive",
+      notes: "Fictional shop.",
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.client.taxId, undefined);
+    const listed = await (await olivia.fetch(`${base}/api/clients?q=Maple`)).json();
+    assert.equal(listed.clients.length, 1);
+    assert.equal(listed.clients[0].name, "Maple Goods");
+    assert.equal(listed.clients[0].status, "inactive");
+    assert.equal(listed.clients[0].assignedUserId, signedIn.user.id);
+    assert.equal(JSON.stringify(listed).includes("12-3456789"), false);
+    assert.equal(Object.hasOwn(listed.clients[0], "taxId"), false);
+
+    const detail = await (await olivia.fetch(`${base}/api/clients/${created.body.client.id}`)).json();
+    assert.equal(detail.client.taxId, "12-3456789");
+    assert.equal(detail.client.businessType, "LLC");
+    assert.equal(detail.client.fiscalYearStart, "July");
+    assert.equal(detail.client.accountingMethod, "cash");
+
+    const oak = await postJson(olivia, base, "/api/clients", { name: "Oak Studio", status: "active" });
+    assert.equal(oak.response.status, 201);
+    const inactive = await (await olivia.fetch(`${base}/api/clients?status=inactive`)).json();
+    assert.equal(inactive.clients.some((client) => client.name === "Maple Goods"), true);
+    assert.equal(inactive.clients.some((client) => client.name === "Oak Studio"), false);
+    assert.equal(inactive.clients.some((client) => client.name === "Northstar Creative"), false);
+    const activeSearch = await (await olivia.fetch(`${base}/api/clients?q=Oak&status=active`)).json();
+    assert.deepEqual(activeSearch.clients.map((client) => client.name), ["Oak Studio"]);
+    const assigned = await (await olivia.fetch(`${base}/api/clients?assignee=${encodeURIComponent(signedIn.user.id)}`)).json();
+    assert.equal(assigned.clients.some((client) => client.name === "Maple Goods"), true);
+    assert.equal(assigned.clients.some((client) => client.name === "Oak Studio"), false);
+
+    const switched = await olivia.fetch(`${base}/api/session`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clientId: oak.body.client.id }),
+    });
+    assert.equal(switched.status, 200);
+    const books = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    const cash = books.accounts.find((account) => account.code === "1000").id;
+    const income = books.accounts.find((account) => account.code === "4000").id;
+    const posted = await postJson(olivia, base, "/api/journal-entries", {
+      entryDate: "2026-05-12",
+      memo: "Oak opening sale",
+      lines: [
+        { accountId: cash, debit: "25.00", credit: "" },
+        { accountId: income, debit: "", credit: "25.00" },
+      ],
+    });
+    assert.equal(posted.response.status, 201);
+    const archived = await postJson(olivia, base, `/api/clients/${oak.body.client.id}/archive`, {});
+    assert.equal(archived.response.status, 200);
+    assert.equal(archived.body.client.status, "archived");
+    const ledger = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(ledger.client.name, "Oak Studio");
+    assert.equal(ledger.entries.length, 1);
+    assert.equal(ledger.entries[0].memo, "Oak opening sale");
+    assert.equal(ledger.foots, true);
+    const archivedList = await (await olivia.fetch(`${base}/api/clients?status=archived`)).json();
+    assert.equal(archivedList.clients.some((client) => client.id === oak.body.client.id), true);
+
+    const harbor = cookieJar();
+    await signIn(harbor, base, firms.harbor.owner);
+    const hidden = await harbor.fetch(`${base}/api/clients/${created.body.client.id}`);
+    const hiddenBody = await hidden.json();
+    assert.equal(hidden.status, 404);
+    assert.equal(JSON.stringify(hiddenBody).includes("12-3456789"), false);
+    const hiddenList = await (await harbor.fetch(`${base}/api/clients?q=Maple`)).json();
+    assert.equal(hiddenList.clients.length, 0);
+    assert.equal(JSON.stringify(hiddenList).includes("12-3456789"), false);
+    const hiddenArchive = await postJson(harbor, base, `/api/clients/${oak.body.client.id}/archive`, {});
+    assert.equal(hiddenArchive.response.status, 404);
+  });
+});
+
 test("the clients screen does not keep the published firm counts", () => {
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   const clients = readFileSync(new URL("../src/Clients.jsx", import.meta.url), "utf8");

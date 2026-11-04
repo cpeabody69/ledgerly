@@ -1135,6 +1135,12 @@ color:#fff;
 margin-bottom:3px;
 font-size:16px;
 display:block}
+.client-page .portal-stats{display:flex;flex-wrap:wrap}
+.client-page .detail-drawer{position:fixed;z-index:95}
+.client-filters{display:flex;gap:10px;align-items:end}
+.client-filters .field{min-width:140px}
+.client-filters .field span{display:block;margin-bottom:4px;color:#718095;font-size:9px}
+.client-filters select{height:34px;border:1px solid #d5dee8;border-radius:8px;padding:0 8px;background:#fff;font:inherit}
 .client-layout{
 grid-template-columns:1fr 340px;
 align-items:start;

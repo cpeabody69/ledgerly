@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
 import { ensureBanking } from "./banking.js";
-import { ensureFirmCrm } from "./clients.js";
+import { applyProfile, ensureFirmCrm, profileFields } from "./clients.js";
 import { ensureDocuments } from "./documents.js";
 import { ensureInvoices } from "./invoices.js";
 import { ensureExpenses } from "./expenses.js";
@@ -286,12 +286,15 @@ export function createClient(db, session, input) {
   if (industry.length > 80) return { status: 400, error: "That industry is too long." };
   const duplicate = db.prepare("SELECT id FROM clients WHERE firm_id = ? AND lower(name) = lower(?)").get(session.firm_id, name);
   if (duplicate) return { status: 409, error: "That client is already in this firm." };
+  const fields = profileFields(db, session, body);
+  if (fields.error) return fields;
   const position = Number(db.prepare("SELECT COALESCE(MAX(position), -1) AS max FROM clients WHERE firm_id = ?").get(session.firm_id).max);
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO clients (id, firm_id, name, legal_name, initials, industry, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(id, session.firm_id, name, legalName, initialsFor(name), industry, position + 1, now);
+  applyProfile(db, session, id, fields);
   audit(db, session, "client.created", { clientId: id, entityType: "client", entityId: id });
   ensureCharts(db);
   const client = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(id, session.firm_id);

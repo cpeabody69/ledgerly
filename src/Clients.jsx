@@ -46,16 +46,36 @@ async function payloadFor(file) {
   return { name: file.name, mediaType, contentBase64: btoa(binary) };
 }
 
-function glance(ready) {
-  if (!ready) return "No client books are waiting for review.";
-  if (ready === 1) return "1 client book is ready for review.";
-  return `${ready} client books are ready for review.`;
+function glance(count) {
+  if (!count) return "No clients need attention.";
+  if (count === 1) return "1 client needs attention.";
+  return `${count} clients need attention.`;
 }
 
-function AddClient({ onClose, onCreated }) {
-  const [name, setName] = useState("");
-  const [legalName, setLegalName] = useState("");
-  const [industry, setIndustry] = useState("");
+function statusTone(status) {
+  if (status === "inactive") return "neutral";
+  if (status === "archived") return "red";
+  return "green";
+}
+
+const BUSINESS_TYPES = ["", "Sole proprietorship", "Partnership", "LLC", "S corporation", "C corporation", "Nonprofit"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function ClientForm({ client, members, onClose, onCreated }) {
+  const [name, setName] = useState(client?.name || "");
+  const [legalName, setLegalName] = useState(client?.legalName || "");
+  const [industry, setIndustry] = useState(client?.industry || "");
+  const [businessType, setBusinessType] = useState(client?.businessType || "");
+  const [contactName, setContactName] = useState(client?.contactName || "");
+  const [contactEmail, setContactEmail] = useState(client?.contactEmail || "");
+  const [contactPhone, setContactPhone] = useState(client?.contactPhone || "");
+  const [address, setAddress] = useState(client?.address || "");
+  const [taxId, setTaxId] = useState(client?.taxId || "");
+  const [fiscalYearStart, setFiscalYearStart] = useState(client?.fiscalYearStart || "January");
+  const [accountingMethod, setAccountingMethod] = useState(client?.accountingMethod || "accrual");
+  const [assignedUserId, setAssignedUserId] = useState(client?.assignedUserId || "");
+  const [status, setStatus] = useState(client?.status === "inactive" ? "inactive" : "active");
+  const [notes, setNotes] = useState(client?.notes || "");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const ready = name.trim() && !pending;
@@ -65,15 +85,19 @@ function AddClient({ onClose, onCreated }) {
     if (!ready) return;
     setPending(true);
     setError("");
-    const response = await fetch("/api/clients", {
-      method: "POST",
+    const payload = {
+      name, legalName, industry, businessType, contactName, contactEmail, contactPhone, address, taxId,
+      fiscalYearStart, accountingMethod, assignedUserId, status, notes,
+    };
+    const response = await fetch(client ? `/api/clients/${client.id}` : "/api/clients", {
+      method: client ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, legalName, industry }),
+      body: JSON.stringify(payload),
     });
     const body = await response.json().catch(() => ({}));
     setPending(false);
     if (!response.ok) {
-      setError(body.error || "The client was not created.");
+      setError(body.error || "The client was not saved.");
       return;
     }
     onCreated(body);
@@ -81,26 +105,150 @@ function AddClient({ onClose, onCreated }) {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <form className="modal" role="dialog" aria-modal="true" aria-labelledby="add-client-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={save}>
+      <form className="modal wide" role="dialog" aria-modal="true" aria-labelledby="add-client-title" onMouseDown={(event) => event.stopPropagation()} onSubmit={save}>
         <div className="modal-header">
           <div>
-            <h2 id="add-client-title">Add client</h2>
-            <p>This creates a client and an empty ledger in the firm.</p>
+            <h2 id="add-client-title">{client ? "Edit client" : "Add client"}</h2>
+            <p>The profile stays in this firm. The tax ID is not included in the client list.</p>
           </div>
           <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="form-grid">
-          <label className="field full"><span>Name</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label className="field full"><span>Legal name</span><input value={legalName} onChange={(event) => setLegalName(event.target.value)} placeholder="Defaults to the client name" /></label>
-          <label className="field full"><span>Industry</span><input value={industry} onChange={(event) => setIndustry(event.target.value)} /></label>
+          <label className="field"><span>Business name</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label className="field"><span>Legal name</span><input value={legalName} onChange={(event) => setLegalName(event.target.value)} /></label>
+          <label className="field"><span>Type</span>
+            <select value={businessType} onChange={(event) => setBusinessType(event.target.value)}>
+              {BUSINESS_TYPES.map((type) => <option value={type} key={type || "none"}>{type || "Not set"}</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Industry</span><input value={industry} onChange={(event) => setIndustry(event.target.value)} /></label>
+          <label className="field"><span>Contact</span><input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label>
+          <label className="field"><span>Email</span><input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} /></label>
+          <label className="field"><span>Phone</span><input value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} /></label>
+          <label className="field"><span>Assigned accountant</span>
+            <select value={assignedUserId} onChange={(event) => setAssignedUserId(event.target.value)}>
+              <option value="">Unassigned</option>
+              {members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
+            </select>
+          </label>
+          <label className="field full"><span>Address</span><input value={address} onChange={(event) => setAddress(event.target.value)} /></label>
+          <label className="field"><span>Tax ID</span><input value={taxId} onChange={(event) => setTaxId(event.target.value)} placeholder="12-3456789" autoComplete="off" /></label>
+          <label className="field"><span>Fiscal year starts</span>
+            <select value={fiscalYearStart} onChange={(event) => setFiscalYearStart(event.target.value)}>
+              {MONTHS.map((month) => <option key={month}>{month}</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Accounting method</span>
+            <select value={accountingMethod} onChange={(event) => setAccountingMethod(event.target.value)}>
+              <option value="accrual">Accrual</option>
+              <option value="cash">Cash</option>
+            </select>
+          </label>
+          <label className="field"><span>Status</span>
+            <select value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
+          <label className="field full"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} /></label>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="modal-footer">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!ready}>{pending ? "Saving…" : "Add client"}</Button>
+          <Button type="submit" disabled={!ready}>{pending ? "Saving…" : client ? "Save profile" : "Add client"}</Button>
         </div>
       </form>
     </div>
+  );
+}
+
+function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
+  const [client, setClient] = useState(null);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/clients/${encodeURIComponent(clientId)}`).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (cancelled) return;
+      if (!response.ok) {
+        setError(body.error || "Could not load this client.");
+        return;
+      }
+      setClient(body.client);
+    }).catch(() => {
+      if (!cancelled) setError("Could not load this client.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  async function archive() {
+    setPending(true);
+    setError("");
+    const response = await fetch(`/api/clients/${encodeURIComponent(clientId)}/archive`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    setPending(false);
+    if (!response.ok) {
+      setError(body.error || "The client was not archived.");
+      return;
+    }
+    setClient(body.client);
+    onChanged();
+  }
+
+  return (
+    <>
+      <div className="drawer-scrim" onMouseDown={onClose} />
+      <aside className="detail-drawer" aria-label={client?.name || "Client profile"}>
+        <div className="drawer-header">
+          <div>
+            <span className={`badge ${statusTone(client?.status)}`}>{client?.statusLabel || "Client"}</span>
+            <h2>{client?.name || "Client"}</h2>
+            <p>{client?.legalName || "Profile"}</p>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        {client ? (
+          <>
+            <div className="drawer-section">
+              <h3>Profile</h3>
+              <dl>
+                <div><dt>Type</dt><dd>{client.businessType || "—"}</dd></div>
+                <div><dt>Industry</dt><dd>{client.industry || "—"}</dd></div>
+                <div><dt>Contact</dt><dd>{[client.contactName, client.contactEmail, client.contactPhone].filter(Boolean).join(" · ") || "—"}</dd></div>
+                <div><dt>Address</dt><dd>{client.address || "—"}</dd></div>
+                <div><dt>Tax ID</dt><dd>{client.taxId || "—"}</dd></div>
+                <div><dt>Fiscal year</dt><dd>{client.fiscalYearStart}</dd></div>
+                <div><dt>Method</dt><dd>{client.accountingMethodLabel}</dd></div>
+                <div><dt>Accountant</dt><dd>{client.assignedUserName || "Unassigned"}</dd></div>
+                <div><dt>Notes</dt><dd>{client.notes || "—"}</dd></div>
+              </dl>
+            </div>
+            <div className="drawer-section">
+              <h3>Outstanding tasks</h3>
+              {client.tasks?.length ? (
+                <ul className="plain-list">{client.tasks.map((task) => <li key={`${task.kind}-${task.id || task.label}`}>{task.label}</li>)}</ul>
+              ) : <p className="books-note">Nothing is open on this client.</p>}
+            </div>
+            <div className="drawer-section">
+              <h3>Activity</h3>
+              {client.activity?.length ? (
+                <ul className="plain-list">{client.activity.map((event) => <li key={`${event.action}-${event.createdAt}`}>{event.label}</li>)}</ul>
+              ) : <p className="books-note">No activity stored yet.</p>}
+            </div>
+          </>
+        ) : <p className="books-note">Loading the profile…</p>}
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <div className="modal-footer">
+          <Button variant="secondary" onClick={onOpen} disabled={!client}>Open books</Button>
+          <Button variant="secondary" onClick={() => onEdit(client)} disabled={!client || pending}>Edit</Button>
+          {client && client.status !== "archived" ? <Button onClick={archive} disabled={pending}>Archive</Button> : null}
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -164,11 +312,25 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
   const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("active");
+  const [assignee, setAssignee] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [profileId, setProfileId] = useState(null);
   const [requesting, setRequesting] = useState(false);
 
-  async function load() {
-    const [clientResponse, fileResponse] = await Promise.all([fetch("/api/clients"), fetch("/api/documents")]);
+  async function load(next = {}) {
+    const params = new URLSearchParams();
+    const q = next.q ?? query;
+    const nextStatus = next.status ?? status;
+    const nextAssignee = next.assignee ?? assignee;
+    if (q.trim()) params.set("q", q.trim());
+    if (nextStatus) params.set("status", nextStatus);
+    if (nextAssignee) params.set("assignee", nextAssignee);
+    const [clientResponse, fileResponse] = await Promise.all([
+      fetch(`/api/clients?${params.toString()}`),
+      fetch("/api/documents"),
+    ]);
     const body = await clientResponse.json().catch(() => ({}));
     const fileBody = await fileResponse.json().catch(() => ({}));
     if (!clientResponse.ok) throw new Error(body.error || "Could not load clients.");
@@ -216,14 +378,11 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [query, status, assignee]);
 
   const clients = firm?.clients || [];
-  const needle = query.trim().toLowerCase();
-  const visible = needle
-    ? clients.filter((client) => `${client.name} ${client.legalName} ${client.industry}`.toLowerCase().includes(needle))
-    : clients;
-  const counts = firm?.counts || { active: 0, readyToReview: 0, openRequests: 0, uncategorized: 0, unreconciled: 0 };
+  const visible = clients;
+  const counts = firm?.counts || { total: 0, active: 0, inactive: 0, needingAttention: 0, recentlyAdded: 0, readyToReview: 0, openRequests: 0, uncategorized: 0, unreconciled: 0 };
   const reviewClients = clients.filter((client) => client.ready);
   const badge = counts.uncategorized
     ? `${counts.uncategorized} uncategorized`
@@ -232,7 +391,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
       : "";
 
   return (
-    <div className="page">
+    <div className="page client-page">
       <div className="page-header">
         <div>
           <div className="eyebrow">CPA PORTAL</div>
@@ -241,7 +400,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
         </div>
         <div className="header-actions">
           <Button variant="secondary" icon="upload" onClick={() => setRequesting(true)}>Request documents</Button>
-          <Button icon="plus" onClick={() => setAdding(true)}>Add client</Button>
+          <Button icon="plus" onClick={() => { setEditing(null); setAdding(true); }}>Add client</Button>
         </div>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
@@ -250,13 +409,15 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
           <span className="round-icon inverse"><Icon name="building" /></span>
           <div>
             <h2>Your firm at a glance</h2>
-            <p>{firm ? glance(counts.readyToReview) : "Loading this firm’s clients…"}</p>
+            <p>{firm ? glance(counts.needingAttention) : "Loading this firm’s clients…"}</p>
           </div>
         </div>
         <div className="portal-stats">
-          <span><b>{firm ? counts.active : "—"}</b>Active clients</span>
-          <span><b>{firm ? counts.readyToReview : "—"}</b>Ready to review</span>
-          <span><b>{firm ? counts.openRequests : "—"}</b>Open requests</span>
+          <span><b>{firm ? counts.total : "—"}</b>Total</span>
+          <span><b>{firm ? counts.active : "—"}</b>Active</span>
+          <span><b>{firm ? counts.inactive : "—"}</b>Inactive</span>
+          <span><b>{firm ? counts.needingAttention : "—"}</b>Needing attention</span>
+          <span><b>{firm ? counts.recentlyAdded : "—"}</b>Recently added</span>
         </div>
       </div>
       <div className="client-layout">
@@ -266,36 +427,53 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
               <h2>Client accounts</h2>
               <p>{firm?.period?.label ? `Financial snapshots for ${firm.period.label}` : "Financial snapshots"}</p>
             </div>
-            <div className="search-mini">
-              <Icon name="search" />
-              <input aria-label="Search clients" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search clients" />
+            <div className="client-filters">
+              <label className="field"><span>Status</span>
+                <select aria-label="Status" value={status} onChange={(event) => setStatus(event.target.value)}>
+                  <option value="">All</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </label>
+              <label className="field"><span>Assignee</span>
+                <select aria-label="Assignee" value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+                  <option value="">Anyone</option>
+                  <option value="unassigned">Unassigned</option>
+                  {(firm?.members || []).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
+                </select>
+              </label>
+              <div className="search-mini">
+                <Icon name="search" />
+                <input aria-label="Search clients" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search clients" />
+              </div>
             </div>
           </div>
           <table>
             <thead>
               <tr>
                 <th>Client</th>
-                <th>Revenue</th>
-                <th>Net income</th>
-                <th>Books updated</th>
+                <th>Assignee</th>
                 <th>Status</th>
-                <th />
+                <th>Tasks</th>
+                <th>Revenue</th>
+                <th>Books updated</th>
               </tr>
             </thead>
             <tbody>
               {visible.length ? visible.map((client, index) => (
-                <tr key={client.id} onClick={() => onOpenClient(client.id)}>
+                <tr key={client.id} onClick={() => setProfileId(client.id)}>
                   <td>
                     <div className="customer">
                       <span className={`avatar ${COLORS[index % COLORS.length]}`}>{client.initials}</span>
-                      <span><b>{client.name}</b><small>{client.industry}</small></span>
+                      <span><b>{client.name}</b><small>{[client.businessType, client.industry].filter(Boolean).join(" · ") || "Client"}</small></span>
                     </div>
                   </td>
+                  <td>{client.assignedUserName || "Unassigned"}</td>
+                  <td><span className={`badge ${statusTone(client.status)}`}>{client.statusLabel}</span></td>
+                  <td>{client.tasks?.length ? client.tasks.map((task) => task.label).join(" · ") : "None"}</td>
                   <td><strong>{client.revenue}</strong></td>
-                  <td>{client.netIncome}</td>
-                  <td>{client.booksUpdated}</td>
-                  <td><span className={`badge ${client.ready ? "amber" : "green"}`}>{client.ready ? "Ready to review" : "Active"}</span></td>
-                  <td><Icon name="chevron" /></td>
+                  <td>{client.booksUpdated || "—"}</td>
                 </tr>
               )) : (
                 <tr><td colSpan={6}>{firm ? "No clients match that search." : "Loading clients…"}</td></tr>
@@ -348,11 +526,23 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
           </section>
         </div>
       </div>
-      {adding ? (
-        <AddClient
-          onClose={() => setAdding(false)}
+      {profileId ? (
+        <ClientProfile
+          clientId={profileId}
+          onClose={() => setProfileId(null)}
+          onOpen={() => { setProfileId(null); onOpenClient(profileId); }}
+          onEdit={(client) => { setEditing(client); setAdding(false); }}
+          onChanged={() => load().catch((loadError) => setError(loadError.message))}
+        />
+      ) : null}
+      {adding || editing ? (
+        <ClientForm
+          client={editing}
+          members={firm?.members || []}
+          onClose={() => { setAdding(false); setEditing(null); }}
           onCreated={(body) => {
             setAdding(false);
+            setEditing(null);
             if (body.session) onSession(body.session);
             load().catch((loadError) => setError(loadError.message));
           }}
