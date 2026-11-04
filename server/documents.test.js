@@ -266,6 +266,107 @@ test("a library file rejects the wrong type, stays in the firm, and keeps its by
   });
 });
 
+function tableCount(db, table) {
+  const exists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+  if (!exists) return 0;
+  return Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count);
+}
+
+function bookCounts(dbPath) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const counts = {
+    journals: tableCount(db, "journal_entries"),
+    bills: tableCount(db, "ap_bills"),
+    tax: tableCount(db, "tax_workflows"),
+  };
+  db.close();
+  return counts;
+}
+
+test("an unreviewed file creates no journal, and accepting a label does not post", async () => {
+  const saved = {
+    provider: process.env.LEDGERLY_MODEL_PROVIDER,
+    key: process.env.LEDGERLY_MODEL_API_KEY,
+    url: process.env.LEDGERLY_MODEL_URL,
+  };
+  delete process.env.LEDGERLY_MODEL_PROVIDER;
+  delete process.env.LEDGERLY_MODEL_API_KEY;
+  delete process.env.LEDGERLY_MODEL_URL;
+  try {
+    await withServer(async (base, dbPath) => {
+      const olivia = cookieJar();
+      const signedIn = await signIn(olivia, base, firms.northstar.owner);
+      const before = bookCounts(dbPath);
+      const invoice = Buffer.from("Vendor: Harbor Supply\nDate: 2026-03-04\nAmount: 42.50\nVendor invoice\n");
+      const stored = await postJson(olivia, base, "/api/documents", {
+        name: "harbor-supply-vendor-invoice.txt",
+        mediaType: "text/plain",
+        contentBase64: invoice.toString("base64"),
+      });
+      assert.equal(stored.response.status, 201);
+      const script = await postJson(olivia, base, "/api/documents", {
+        name: "do-not-run.txt",
+        mediaType: "text/plain",
+        contentBase64: Buffer.from("process.exit(1)\n").toString("base64"),
+      });
+      assert.equal(script.response.status, 201);
+      const queued = await (await olivia.fetch(`${base}/api/documents/reviews`)).json();
+      assert.match(queued.notice, /external model is not configured/i);
+      assert.equal(queued.label, "AI-generated");
+      const suggestion = queued.queue.find((item) => item.name === "harbor-supply-vendor-invoice.txt");
+      const untouched = queued.queue.find((item) => item.name === "do-not-run.txt");
+      assert.equal(suggestion.suggestion.kind, "vendor invoice");
+      assert.equal(suggestion.suggestion.party, "Harbor Supply");
+      assert.equal(suggestion.suggestion.date, "2026-03-04");
+      assert.equal(suggestion.suggestion.amount, "42.50");
+      assert.equal(suggestion.suggestion.label, "AI-generated");
+      assert.equal(suggestion.suggestion.confidenceLabel.length > 0, true);
+      assert.equal(untouched.suggestion.kind, "unknown");
+      assert.deepEqual(bookCounts(dbPath), before);
+
+      const accepted = await postJson(olivia, base, `/api/documents/${stored.body.file.id}/review`, { decision: "accept" });
+      assert.equal(accepted.response.status, 201);
+      assert.equal(accepted.body.review.status, "accepted");
+      assert.equal(accepted.body.review.kind, "vendor invoice");
+      assert.equal(accepted.body.review.label, "AI-generated");
+      assert.equal(JSON.stringify(accepted.body).includes("journal"), false);
+      const corrected = await postJson(olivia, base, `/api/documents/${script.body.file.id}/review`, {
+        decision: "correct",
+        kind: "contract",
+        party: "Harbor Supply",
+        date: "2026-04-01",
+        amount: "10.00",
+      });
+      assert.equal(corrected.response.status, 201);
+      assert.equal(corrected.body.review.status, "corrected");
+      assert.equal(corrected.body.review.kind, "contract");
+      assert.deepEqual(bookCounts(dbPath), before);
+
+      const harbor = cookieJar();
+      await signIn(harbor, base, firms.harbor.owner);
+      const hidden = await (await harbor.fetch(`${base}/api/documents/reviews`)).json();
+      assert.equal(JSON.stringify(hidden).includes("Harbor Supply"), false);
+      assert.equal(JSON.stringify(hidden).includes("vendor invoice"), false);
+      assert.equal(JSON.stringify(hidden).includes("harbor-supply"), false);
+      const hiddenReview = await postJson(harbor, base, `/api/documents/${stored.body.file.id}/review`, { decision: "accept" });
+      assert.equal(hiddenReview.response.status, 404);
+
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      const reviews = db.prepare("SELECT firm_id, kind, status FROM document_reviews").all();
+      assert.equal(reviews.length, 2);
+      assert.equal(reviews.every((row) => row.firm_id === signedIn.firm.id), true);
+      db.close();
+    });
+  } finally {
+    if (saved.provider === undefined) delete process.env.LEDGERLY_MODEL_PROVIDER;
+    else process.env.LEDGERLY_MODEL_PROVIDER = saved.provider;
+    if (saved.key === undefined) delete process.env.LEDGERLY_MODEL_API_KEY;
+    else process.env.LEDGERLY_MODEL_API_KEY = saved.key;
+    if (saved.url === undefined) delete process.env.LEDGERLY_MODEL_URL;
+    else process.env.LEDGERLY_MODEL_URL = saved.url;
+  }
+});
+
 test("the document screens store a file instead of announcing one", () => {
   const clients = readFileSync(new URL("../src/Clients.jsx", import.meta.url), "utf8");
   const receipt = readFileSync(new URL("../src/Receipt.jsx", import.meta.url), "utf8");
