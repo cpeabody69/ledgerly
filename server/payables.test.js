@@ -330,3 +330,106 @@ test("staff cannot approve a bill, and a partial payment stays inside the firm",
     assert.equal(footed.trialBalance.debitsCents, footed.trialBalance.creditsCents);
   });
 });
+
+function isoToday() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function shiftDays(iso, days) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+async function postOpenBill(jar, base, vendorId, accountId, extra) {
+  const created = await sendJson(jar, base, "POST", "/api/payables/bills", billInput(vendorId, accountId, extra));
+  assert.equal(created.response.status, 201);
+  const submitted = await sendJson(jar, base, "POST", `/api/payables/bills/${created.body.bill.id}/submit`);
+  assert.equal(submitted.response.status, 200);
+  const approved = await sendJson(jar, base, "POST", `/api/payables/bills/${created.body.bill.id}/approve`);
+  assert.equal(approved.response.status, 200);
+  const posted = await sendJson(jar, base, "POST", `/api/payables/bills/${created.body.bill.id}/post`, {});
+  assert.equal(posted.response.status, 200);
+  return posted.body.bill;
+}
+
+test("aging groups open bills by due date and unpaid balance", async () => {
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    await signIn(olivia, base, firms.northstar.owner);
+    const books = await (await olivia.fetch(`${base}/api/payables`)).json();
+    const office = books.accounts.find((account) => account.code === "6400");
+    const cash = books.cashAccounts.find((account) => account.code === "1000");
+    const today = isoToday();
+    const future = await sendJson(olivia, base, "POST", "/api/payables/vendors", { name: "Future Supply" });
+    const late = await sendJson(olivia, base, "POST", "/api/payables/vendors", { name: "Late Supply" });
+    const currentBill = await postOpenBill(olivia, base, future.body.vendor.id, office.id, {
+      invoiceNumber: "FS-1",
+      billDate: today,
+      dueDate: shiftDays(today, 12),
+    });
+    const agedDue = shiftDays(today, -45);
+    const agedBill = await postOpenBill(olivia, base, late.body.vendor.id, office.id, {
+      invoiceNumber: "LS-45",
+      billDate: agedDue,
+      dueDate: agedDue,
+    });
+    const draft = await sendJson(olivia, base, "POST", "/api/payables/bills", billInput(late.body.vendor.id, office.id, {
+      invoiceNumber: "LS-DRAFT",
+      billDate: today,
+      dueDate: today,
+      lines: [{ description: "Not posted", accountId: office.id, amount: "50.00", tax: "0.00" }],
+    }));
+    assert.equal(draft.response.status, 201);
+
+    const before = await (await olivia.fetch(`${base}/api/payables`)).json();
+    const current = before.aging.buckets.find((bucket) => bucket.id === "current");
+    const mid = before.aging.buckets.find((bucket) => bucket.id === "days31to60");
+    assert.equal(before.aging.bills?.length, undefined);
+    assert.equal(current.cents, 1000);
+    assert.equal(before.aging.vendors.find((vendor) => vendor.vendorName === "Future Supply").bills[0].id, currentBill.id);
+    assert.equal(mid.cents, 1000);
+    assert.equal(before.aging.vendors.find((vendor) => vendor.vendorName === "Late Supply").bills[0].id, agedBill.id);
+    const beforeSum = before.aging.buckets.reduce((sum, bucket) => sum + bucket.cents, 0);
+    assert.equal(beforeSum, before.aging.outstandingCents);
+    assert.equal(beforeSum, before.dashboard.outstanding.cents);
+    assert.equal(JSON.stringify(before.aging).includes("50.00"), false);
+
+    const partial = await sendJson(olivia, base, "POST", `/api/payables/bills/${agedBill.id}/payments`, {
+      paidOn: today,
+      amount: "4.00",
+      reference: "AGE-4",
+      accountId: cash.id,
+    });
+    assert.equal(partial.response.status, 201);
+    const after = await (await olivia.fetch(`${base}/api/payables`)).json();
+    const reduced = after.aging.buckets.find((bucket) => bucket.id === "days31to60");
+    assert.equal(reduced.cents, 600);
+    assert.equal(after.aging.buckets.find((bucket) => bucket.id === "current").cents, 1000);
+    assert.equal(after.aging.vendors.find((vendor) => vendor.vendorName === "Late Supply").days31to60Cents, 600);
+    assert.equal(after.aging.vendors.find((vendor) => vendor.vendorName === "Late Supply").totalCents, 600);
+    const afterSum = after.aging.buckets.reduce((sum, bucket) => sum + bucket.cents, 0);
+    assert.equal(afterSum, after.aging.outstandingCents);
+    assert.equal(afterSum, after.dashboard.outstanding.cents);
+    assert.equal(afterSum, 1600);
+
+    const csvResponse = await olivia.fetch(`${base}/api/payables/aging.csv`);
+    assert.equal(csvResponse.status, 200);
+    assert.match(csvResponse.headers.get("content-type"), /text\/csv/);
+    const csv = await csvResponse.text();
+    assert.equal(csv.includes("Late Supply"), true);
+    assert.equal(csv.includes("$6.00"), true);
+    assert.equal(csv.includes("Future Supply"), true);
+    assert.equal(csv.includes("LS-DRAFT"), false);
+
+    const harbor = cookieJar();
+    await signIn(harbor, base, firms.harbor.owner);
+    const hidden = await (await harbor.fetch(`${base}/api/payables`)).json();
+    assert.equal(hidden.aging.outstandingCents, 0);
+    assert.equal(JSON.stringify(hidden.aging).includes("Late Supply"), false);
+    const hiddenCsv = await (await harbor.fetch(`${base}/api/payables/aging.csv`)).text();
+    assert.equal(hiddenCsv.includes("Late Supply"), false);
+  });
+});

@@ -50,6 +50,7 @@ const TABS = [
   ["vendors", "Vendors"],
   ["approvals", "Approvals"],
   ["payments", "Payments"],
+  ["aging", "Aging"],
 ];
 
 export function Payables({ clientId }) {
@@ -115,6 +116,7 @@ export function Payables({ clientId }) {
           {section === "vendors" ? <Button icon="plus" onClick={() => { setCreating("vendor"); setVendorId(null); }}>New vendor</Button> : null}
           {section === "bills" ? <Button icon="plus" onClick={() => { setCreating("bill"); setBillId(null); }} disabled={!vendors.length}>New bill</Button> : null}
           {section === "payments" ? <Button icon="plus" onClick={() => setCreating("payment")} disabled={!bills.some((bill) => bill.openCents > 0)}>Record payment</Button> : null}
+          {section === "aging" ? <a className="button secondary" href="/api/payables/aging.csv">Download CSV</a> : null}
         </div>
       </div>
       <div className="tab-bar" role="tablist" aria-label="Accounts payable">
@@ -136,6 +138,7 @@ export function Payables({ clientId }) {
       {section === "payments" ? (
         <PaymentList payments={payload?.payments || []} onChanged={load} />
       ) : null}
+      {section === "aging" ? <AgingReport aging={payload?.aging} onOpen={(id) => { setVendorId(null); setBillId(id); }} /> : null}
       {openVendor && !creating ? <VendorDrawer vendor={openVendor} onClose={() => setVendorId(null)} onEdit={() => setCreating("vendor")} /> : null}
       {openBill && !creating ? (
         <BillDrawer
@@ -816,5 +819,103 @@ function PaymentForm({ bills, cashAccounts, initialBillId, onClose, onSaved }) {
         </div>
       </form>
     </div>
+  );
+}
+
+function AgingReport({ aging, onOpen }) {
+  const buckets = aging?.buckets || [];
+  const vendors = aging?.vendors || [];
+  const total = aging?.total;
+  return (
+    <>
+      <div className="invoice-metrics aging-metrics">
+        {buckets.map((bucket) => (
+          <section className="card" key={bucket.id}>
+            <span>{bucket.label}</span>
+            <strong>{bucket.amount}</strong>
+            <small>{bucket.count} {bucket.count === 1 ? "bill" : "bills"}</small>
+          </section>
+        ))}
+      </div>
+      <section className="card table-card">
+        <div className="card-header">
+          <div>
+            <h2>Vendor totals</h2>
+            <p>Open posted bills as of {aging?.asOfLabel || "today"}, grouped from the due date and the unpaid balance.</p>
+          </div>
+        </div>
+        {!vendors.length ? (
+          <div className="empty-state">
+            <b>No open payables</b>
+            <p>Posted bills with a remaining balance appear here. Drafts and paid bills do not.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  {buckets.map((bucket) => <th key={bucket.id}>{bucket.label}</th>)}
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendors.map((vendor) => (
+                  <tr key={vendor.vendorId}>
+                    <td><b>{vendor.vendorName}</b></td>
+                    <td>{vendor.current}</td>
+                    <td>{vendor.days1to30}</td>
+                    <td>{vendor.days31to60}</td>
+                    <td>{vendor.days61to90}</td>
+                    <td>{vendor.days90plus}</td>
+                    <td><strong>{vendor.total}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+              {total ? (
+                <tfoot>
+                  <tr>
+                    <td><b>Total</b></td>
+                    <td>{total.current}</td>
+                    <td>{total.days1to30}</td>
+                    <td>{total.days31to60}</td>
+                    <td>{total.days61to90}</td>
+                    <td>{total.days90plus}</td>
+                    <td><strong>{total.total}</strong></td>
+                  </tr>
+                </tfoot>
+              ) : null}
+            </table>
+          </div>
+        )}
+      </section>
+      {vendors.some((vendor) => vendor.bills.length) ? (
+        <section className="card table-card">
+          <div className="card-header">
+            <div>
+              <h2>Open bills</h2>
+              <p>Each amount is the bill total minus recorded payments.</p>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Vendor</th><th>Invoice</th><th>Due</th><th>Days past due</th><th>Bucket</th><th>Open</th></tr></thead>
+              <tbody>
+                {vendors.flatMap((vendor) => vendor.bills.map((bill) => (
+                  <tr key={bill.id} onClick={() => onOpen(bill.id)}>
+                    <td><b>{vendor.vendorName}</b></td>
+                    <td>{bill.invoiceNumber}</td>
+                    <td>{bill.dueDateLabel}</td>
+                    <td>{bill.daysPastDue}</td>
+                    <td>{bill.bucketLabel}</td>
+                    <td><strong>{bill.open}</strong></td>
+                  </tr>
+                )))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+    </>
   );
 }
