@@ -195,6 +195,77 @@ test("a requested document keeps its bytes, shows on the transaction, and stays 
   });
 });
 
+test("a library file rejects the wrong type, stays in the firm, and keeps its bytes when archived", async () => {
+  await withServer(async (base, dbPath) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const csv = Buffer.from("date,amount\n2026-01-02,12.00\n");
+    const rejected = await postJson(olivia, base, "/api/documents", {
+      name: "notes.html",
+      mediaType: "text/html",
+      contentBase64: Buffer.from("<html>no</html>").toString("base64"),
+    });
+    assert.equal(rejected.response.status, 400);
+    const folder = await postJson(olivia, base, "/api/documents/folders", { name: "Tax files" });
+    assert.equal(folder.response.status, 201);
+    const stored = await postJson(olivia, base, "/api/documents", {
+      name: "ledger-2026.csv",
+      mediaType: "text/csv",
+      contentBase64: csv.toString("base64"),
+      category: "Tax",
+      taxYear: "2026",
+      folderId: folder.body.folder.id,
+    });
+    assert.equal(stored.response.status, 201);
+    const renamed = await olivia.fetch(`${base}/api/documents/${stored.body.file.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "studio-ledger-2026.csv" }),
+    });
+    assert.equal(renamed.status, 200);
+    const tagged = await postJson(olivia, base, `/api/documents/${stored.body.file.id}/tags`, { name: "fictional" });
+    assert.equal(tagged.response.status, 201);
+    const noted = await postJson(olivia, base, `/api/documents/${stored.body.file.id}/notes`, { body: "Synthetic ledger export." });
+    assert.equal(noted.response.status, 201);
+    const found = await (await olivia.fetch(`${base}/api/documents/library?q=studio-ledger`)).json();
+    assert.equal(found.files.length, 1);
+    assert.equal(found.files[0].name, "studio-ledger-2026.csv");
+    assert.equal(found.files[0].category, "Tax");
+    assert.equal(found.files[0].taxYear, "2026");
+    assert.equal(found.files[0].folderName, "Tax files");
+    assert.equal(found.files[0].tags[0].name, "fictional");
+    assert.equal(found.files[0].notes[0].body, "Synthetic ledger export.");
+    assert.equal(found.files[0].versions.length >= 1, true);
+
+    const harbor = cookieJar();
+    await signIn(harbor, base, firms.harbor.owner);
+    const hidden = await harbor.fetch(`${base}/api/documents/${stored.body.file.id}`);
+    assert.equal(hidden.status, 404);
+    assert.equal((await hidden.text()).includes("12.00"), false);
+    const hiddenLibrary = await (await harbor.fetch(`${base}/api/documents/library?q=studio-ledger`)).json();
+    assert.equal(hiddenLibrary.files.length, 0);
+
+    const archived = await postJson(olivia, base, `/api/documents/${stored.body.file.id}/archive`, {});
+    assert.equal(archived.response.status, 200);
+    assert.equal(archived.body.file.status, "archived");
+    const download = await olivia.fetch(`${base}/api/documents/${stored.body.file.id}`);
+    assert.equal(download.status, 200);
+    assert.equal(Buffer.compare(Buffer.from(await download.arrayBuffer()), csv), 0);
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db.prepare("SELECT bytes, status FROM client_files WHERE id = ?").get(stored.body.file.id);
+    assert.equal(row.status, "archived");
+    assert.equal(Buffer.compare(Buffer.from(row.bytes), csv), 0);
+    const kinds = db.prepare(
+      "SELECT kind, COUNT(*) AS count FROM document_records WHERE firm_id = ? GROUP BY kind",
+    ).all(signedIn.firm.id);
+    assert.equal(kinds.some((item) => item.kind === "folder" && Number(item.count) >= 1), true);
+    assert.equal(kinds.some((item) => item.kind === "tag" && Number(item.count) >= 1), true);
+    assert.equal(kinds.some((item) => item.kind === "note" && Number(item.count) >= 1), true);
+    assert.equal(kinds.some((item) => item.kind === "version" && Number(item.count) >= 1), true);
+    db.close();
+  });
+});
+
 test("the document screens store a file instead of announcing one", () => {
   const clients = readFileSync(new URL("../src/Clients.jsx", import.meta.url), "utf8");
   const receipt = readFileSync(new URL("../src/Receipt.jsx", import.meta.url), "utf8");
