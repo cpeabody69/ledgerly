@@ -4,6 +4,7 @@ import path from "node:path";
 import { createClient, findClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { listFirm } from "./clients.js";
 import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
+import { listPortal, readPortalDocument, submitPortalFile } from "./portal.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
@@ -135,6 +136,35 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, 200, sessionPayload(db, session));
+    return;
+  }
+
+  if (session?.portal) {
+    if (req.method === "DELETE" && pathname === "/api/session") {
+      signOut(db, session);
+      send(res, 200, { ok: true }, { "set-cookie": clearSessionCookie() });
+      return;
+    }
+    if (req.method === "GET" && pathname === "/api/portal") {
+      const result = listPortal(db, session, url.searchParams.get("clientId"));
+      if (result.error) send(res, result.status, { error: result.error });
+      else send(res, result.status, result.payload);
+      return;
+    }
+    if (req.method === "POST" && pathname === "/api/portal/files") {
+      const result = submitPortalFile(db, session, await readBody(req));
+      if (result.error) send(res, result.status, { error: result.error });
+      else send(res, result.status, result.payload);
+      return;
+    }
+    const portalDocument = pathname.match(/^\/api\/documents\/([^/]+)$/);
+    if (portalDocument && req.method === "GET") {
+      const file = readPortalDocument(db, session, decodeURIComponent(portalDocument[1]));
+      if (!file) send(res, 404, { error: "File not found." });
+      else sendBytes(res, file);
+      return;
+    }
+    send(res, 404, { error: "Not found." });
     return;
   }
 
