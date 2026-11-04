@@ -15,6 +15,7 @@ import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } f
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import { readSubscription, recordFirmPayment, updateSeats } from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
+import { createBill, createVendor, postBill, readPayables, submitBill, updateBill, updateVendor, voidBill } from "./payables.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -246,6 +247,70 @@ async function handle(req, res, db, options) {
     const result = req.method === "GET" ? listExpenses(db, session) : createExpense(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/payables" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, readPayables(db, session, url.searchParams.get("clientId")));
+    return;
+  }
+
+  if (pathname === "/api/payables/vendors" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, createVendor(db, session, await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/payables/bills" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, createBill(db, session, await readBody(req)));
+    return;
+  }
+
+  const payableVendor = pathname.match(/^\/api\/payables\/vendors\/([^/]+)$/);
+  if (payableVendor && req.method === "PATCH") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, updateVendor(db, session, decodeURIComponent(payableVendor[1]), await readBody(req)));
+    return;
+  }
+
+  const payableBill = pathname.match(/^\/api\/payables\/bills\/([^/]+)$/);
+  if (payableBill && req.method === "PATCH") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, updateBill(db, session, decodeURIComponent(payableBill[1]), await readBody(req)));
+    return;
+  }
+
+  const payableAction = pathname.match(/^\/api\/payables\/bills\/([^/]+)\/(submit|post|void)$/);
+  if (payableAction && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const billId = decodeURIComponent(payableAction[1]);
+    const action = payableAction[2];
+    const result = action === "submit"
+      ? submitBill(db, session, billId)
+      : action === "post"
+        ? postBill(db, session, billId, await readBody(req))
+        : voidBill(db, session, billId);
+    sendResult(res, result);
     return;
   }
 

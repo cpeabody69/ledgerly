@@ -15,6 +15,7 @@ import { ensureTax } from "./tax.js";
 import { ensureAssistant } from "./assistant.js";
 import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscription.js";
 import { ensurePlaid } from "./plaid.js";
+import { ensurePayables } from "./payables.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -127,6 +128,7 @@ export function openDatabase(dbPath) {
   ensureAssistant(db);
   ensureSubscription(db);
   ensurePlaid(db);
+  ensurePayables(db);
   return db;
 }
 
