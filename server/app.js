@@ -12,6 +12,7 @@ import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 import { readStatements } from "./statements.js";
 import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } from "./tax.js";
+import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -575,6 +576,39 @@ async function handle(req, res, db, options) {
     const file = readTaxWorkpaper(db, session, decodeURIComponent(workpaperMatch[1]));
     if (!file) send(res, 404, { error: "File not found." });
     else sendBytes(res, file);
+    return;
+  }
+
+  if (pathname === "/api/assistant" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = listAssistant(db, session, url.searchParams.get("clientId"));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/assistant" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await askAssistant(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/assistant/approvals" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = approveAssistant(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 

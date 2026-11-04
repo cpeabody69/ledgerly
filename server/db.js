@@ -12,6 +12,7 @@ import { ensureExpenses } from "./expenses.js";
 import { ensureTime } from "./time.js";
 import { ensurePortal, loadPortalSession, portalPayload, signInPortal, signOutPortal } from "./portal.js";
 import { ensureTax } from "./tax.js";
+import { ensureAssistant } from "./assistant.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -121,6 +122,7 @@ export function openDatabase(dbPath) {
   ensureTime(db);
   ensurePortal(db);
   ensureTax(db);
+  ensureAssistant(db);
   return db;
 }
 

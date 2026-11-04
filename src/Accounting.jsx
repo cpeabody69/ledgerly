@@ -84,10 +84,14 @@ function JournalFormTotals({ lines }) {
   );
 }
 
-function JournalEntryForm({ ledger, onClose, onPosted }) {
-  const [entryDate, setEntryDate] = useState(todayInput);
-  const [memo, setMemo] = useState("");
-  const [lines, setLines] = useState(() => [blankLine(), blankLine()]);
+function JournalEntryForm({ ledger, onClose, onPosted, initial }) {
+  const [entryDate, setEntryDate] = useState(initial?.entryDate || todayInput);
+  const [memo, setMemo] = useState(initial?.memo || "");
+  const [lines, setLines] = useState(() => (
+    initial?.lines?.length
+      ? initial.lines.map((line) => ({ key: crypto.randomUUID(), accountId: line.accountId, debit: line.debit || "", credit: line.credit || "" }))
+      : [blankLine(), blankLine()]
+  ));
   const [error, setError] = useState("");
   const [posting, setPosting] = useState(false);
 
@@ -128,7 +132,7 @@ function JournalEntryForm({ ledger, onClose, onPosted }) {
         <div className="modal-header">
           <div>
             <h2 id="journal-form-title">New journal entry</h2>
-            <p>Post a balanced entry to {ledger.client.name}. Debits must equal credits.</p>
+            <p>{initial ? "This draft was suggested. Posting it is your entry." : `Post a balanced entry to ${ledger.client.name}. Debits must equal credits.`}</p>
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">×</button>
         </div>
@@ -195,12 +199,16 @@ function JournalEntryForm({ ledger, onClose, onPosted }) {
   );
 }
 
-export function Accounting({ clientId }) {
+export function Accounting({ clientId, draft = null, onDraftUsed }) {
   const [ledger, setLedger] = useState(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState(TABS[0]);
   const [query, setQuery] = useState("");
-  const [journalOpen, setJournalOpen] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(Boolean(draft));
+
+  useEffect(() => {
+    if (draft) setJournalOpen(true);
+  }, [draft]);
 
   useEffect(() => {
     let cancelled = false;
@@ -414,10 +422,15 @@ export function Accounting({ clientId }) {
       {journalOpen && ledger ? (
         <JournalEntryForm
           ledger={ledger}
-          onClose={() => setJournalOpen(false)}
+          initial={draft}
+          onClose={() => {
+            setJournalOpen(false);
+            onDraftUsed?.();
+          }}
           onPosted={(next) => {
             setLedger(next);
             setJournalOpen(false);
+            onDraftUsed?.();
             setTab("Trial balance");
             setQuery("");
           }}

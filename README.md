@@ -88,11 +88,17 @@ A client signs in with their own account. Brightline Labs uses `casey@brightline
 
 The Tax screen reads the open client’s books for the current season. The checklist counts uncategorized transactions, reconciliations left unfinished after a completed reconciliation, open document requests, and invoices that are still sent or partially paid. A person sets the workflow to not started, gathering, in review, or blocked, and can assign it and say what is blocked. Each change records that firm user. Notes and workpapers are stored on the season. The screen does not compute tax or send anything to a tax authority.
 
+## Assistant
+
+Explore Ledger AI opens an assistant for the open client. It reads that client’s statements, uncategorized lines, missing documents, and tax checklist, and it can draft a journal. The draft stays off the ledger until a person posts it with New journal entry. Suggestions are marked AI-generated and carry a confidence indicator. Each recommendation and each human approval is stored.
+
+The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MODEL_API_KEY`, and `LEDGERLY_MODEL_URL`. `LEDGERLY_MODEL_NAME` selects the model; when it is empty, the request asks the endpoint for its reasoning model, with structured output and the read-only tools. No key means the same tools run on the stored books and the assistant says the external model is not configured. Client figures stay in Ledgerly. This build uses synthetic clients and does not train on them.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:
 
 - The dashboard’s recent transactions and cash-flow card
 - The Banking and Settings overview cards
-- Add company, exports other than a statement, Ledger AI, notifications, and personal profile
+- Add company, exports other than a statement, notifications, and personal profile
 - Budget vs. actuals, accounts receivable, and expense summary, which stay disabled
