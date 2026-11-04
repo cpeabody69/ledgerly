@@ -74,6 +74,10 @@ The Invoices screen lists the open client’s invoices. Create invoice saves a d
 
 The Expenses screen lists the open client’s bills and paid expenses. Saving an expense posts the expense account and either accounts payable or cash. The journal memo is the vendor, and the line amount is the expense amount. Unpaid bills appear on the dashboard. A firm setting can require a phase 6 receipt before that post; the API refuses the expense when the receipt is missing.
 
+## Time
+
+Each firm user has a staff record in addition to the phase 1 role. Time is entered against a client and a piece of work. Owners and managers can see time by client and open another person’s entries. A staff user sees and opens only their own. Creating an invoice from selected time saves one draft through the invoice flow. Its amount matches those hours. The ledger is unchanged until that invoice is sent. Wages are not posted.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:

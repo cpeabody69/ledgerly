@@ -9,7 +9,7 @@
     "dev": "node server/dev.js",
     "start": "NODE_ENV=production node --experimental-sqlite server/index.js",
     "build": "vite build",
-    "test": "node --experimental-sqlite --test server/tenancy.test.js server/ledger.test.js server/banking.test.js server/statements.test.js server/clients.test.js server/documents.test.js server/invoices.test.js server/expenses.test.js"
+    "test": "node --experimental-sqlite --test server/tenancy.test.js server/ledger.test.js server/banking.test.js server/statements.test.js server/clients.test.js server/documents.test.js server/invoices.test.js server/expenses.test.js server/time.test.js"
   },
   "dependencies": {
     "react": "19.2.4",

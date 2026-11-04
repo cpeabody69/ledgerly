@@ -9,6 +9,7 @@ import { ensureFirmCrm } from "./clients.js";
 import { ensureDocuments } from "./documents.js";
 import { ensureInvoices } from "./invoices.js";
 import { ensureExpenses } from "./expenses.js";
+import { ensureTime } from "./time.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -93,6 +94,7 @@ export function openDatabase(dbPath) {
   ensureDocuments(db);
   ensureInvoices(db);
   ensureExpenses(db);
+  ensureTime(db);
   return db;
 }
 
@@ -272,6 +274,7 @@ export function inviteMember(db, session, input) {
   db.prepare(
     "INSERT INTO users (id, firm_id, email, name, role, password_hash, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(id, session.firm_id, email, name, role, hashPassword(password), session.user_id, now);
+  ensureTime(db);
   audit(db, session, "member.invited", { entityType: "user", entityId: id });
   return { status: 201, payload: sessionPayload(db, session) };
 }
