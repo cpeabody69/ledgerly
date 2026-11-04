@@ -14,6 +14,7 @@ import { ensurePortal, loadPortalSession, portalPayload, signInPortal, signOutPo
 import { ensureTax } from "./tax.js";
 import { ensureAssistant } from "./assistant.js";
 import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscription.js";
+import { ensurePlaid } from "./plaid.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -125,6 +126,7 @@ export function openDatabase(dbPath) {
   ensureTax(db);
   ensureAssistant(db);
   ensureSubscription(db);
+  ensurePlaid(db);
   return db;
 }
 

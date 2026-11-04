@@ -14,6 +14,7 @@ import { readStatements } from "./statements.js";
 import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } from "./tax.js";
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import { readSubscription, recordFirmPayment, updateSeats } from "./subscription.js";
+import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -640,6 +641,60 @@ async function handle(req, res, db, options) {
       return;
     }
     const result = recordFirmPayment(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/plaid" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readPlaid(db, session);
+    send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/plaid/link-token" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await createLinkToken(db, session);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/plaid/exchange" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await exchangePublicToken(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/plaid/sync" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await syncPlaid(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error, ...(result.payload || {}) });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/plaid/disconnect" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = disconnectPlaid(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;

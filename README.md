@@ -98,6 +98,20 @@ The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MO
 
 Settings shows Ledgerly’s plan for the firm. The plan is Practice. The seat count is the number of people who can be invited to sign in, and the seats in use are the owner, managers, and staff already on the firm. An owner changes the seat count. When every seat is in use, another invite is refused until the count is raised. Recording a firm payment stores it on the firm. It does not post a journal entry on a client, and it does not mark a client invoice paid.
 
+## Plaid sandbox
+
+Banking can connect a Plaid sandbox Item for the open client. The same bank accounts, statement lines, categorization, and reconciliation are used. Imported lines stay for review. A journal is posted only when a person categorizes or excludes a line. A second sync does not insert the same Plaid transaction again. Disconnecting stops new lines and leaves the ones already imported.
+
+Set these on the API process:
+
+- `PLAID_CLIENT_ID`
+- `PLAID_SECRET`
+- `PLAID_ENV=sandbox`
+
+`PLAID_REDIRECT_URI` and `PLAID_WEBHOOK` are optional. When either is an `http` or `https` URL, it is sent on the sandbox link-token request. Sandbox keys come from the Plaid dashboard (Team Settings → Keys, Sandbox). Leave the secret there. Do not set a production secret or `PLAID_ENV=production`.
+
+If `PLAID_CLIENT_ID` and `PLAID_SECRET` are unset, Connect sandbox bank stays disabled and Banking says sandbox credentials are not configured.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:

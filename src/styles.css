@@ -2008,6 +2008,14 @@ inherits:false}
 .form-grid fieldset label{display:flex;gap:8px;align-items:center;font-size:13px;margin:0}
 .field input[type="radio"]{width:16px;height:16px;padding:0;border-radius:50%}
 .banking-layout{grid-template-columns:320px 1fr;align-items:start;gap:16px;display:grid}
+.plaid-panel{margin-bottom:16px}
+.plaid-connection{border-top:1px solid var(--border);padding:12px 18px 4px}
+.plaid-connection-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.plaid-connection-head small{display:block;color:#607089;margin-top:3px}
+.plaid-actions{display:flex;gap:8px}
+.plaid-accounts{display:grid;gap:8px;padding:10px 0 12px}
+.plaid-accounts div{display:flex;justify-content:space-between;gap:12px;align-items:baseline;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.plaid-accounts span{color:#607089;font-size:12px}
 .banking-add{padding:0 18px 12px;display:grid;gap:10px}
 .account-list{display:grid}
 .account-list button{text-align:left;background:#fff;border:0;border-top:1px solid var(--border);padding:12px 18px}

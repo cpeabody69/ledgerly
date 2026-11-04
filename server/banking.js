@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS bank_transactions (
   note TEXT NOT NULL DEFAULT '',
   journal_entry_id TEXT REFERENCES journal_entries(id),
   cleared_reconciliation_id TEXT REFERENCES reconciliations(id),
-  source TEXT NOT NULL CHECK (source IN ('csv', 'manual')),
+  source TEXT NOT NULL CHECK (source IN ('csv', 'manual', 'plaid')),
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL
 );
@@ -160,6 +160,42 @@ function audit(db, session, action, { clientId, entityType, entityId }) {
 
 export function ensureBanking(db) {
   db.exec(SCHEMA);
+  const existing = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bank_transactions'").get();
+  if (!existing?.sql?.includes("'plaid'")) {
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.exec("BEGIN");
+    try {
+      db.exec(`
+        CREATE TABLE bank_transactions_next (
+          id TEXT PRIMARY KEY,
+          firm_id TEXT NOT NULL REFERENCES firms(id),
+          client_id TEXT NOT NULL REFERENCES clients(id),
+          bank_account_id TEXT NOT NULL REFERENCES bank_accounts(id),
+          posted_on TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount_cents INTEGER NOT NULL CHECK (amount_cents <> 0),
+          status TEXT NOT NULL CHECK (status IN ('for_review', 'categorized', 'excluded')),
+          category_account_id TEXT REFERENCES accounts(id),
+          note TEXT NOT NULL DEFAULT '',
+          journal_entry_id TEXT REFERENCES journal_entries(id),
+          cleared_reconciliation_id TEXT REFERENCES reconciliations(id),
+          source TEXT NOT NULL CHECK (source IN ('csv', 'manual', 'plaid')),
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL
+        )
+      `);
+      db.exec("INSERT INTO bank_transactions_next SELECT * FROM bank_transactions");
+      db.exec("DROP TABLE bank_transactions");
+      db.exec("ALTER TABLE bank_transactions_next RENAME TO bank_transactions");
+      db.exec("CREATE INDEX IF NOT EXISTS bank_transactions_by_client ON bank_transactions (firm_id, client_id, posted_on)");
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      db.exec("PRAGMA foreign_keys = ON");
+    }
+  }
 }
 
 function accountFor(db, session, bankAccountId) {
@@ -312,7 +348,7 @@ export function createBankAccount(db, session, input) {
   return { status: 201, payload: listBanking(db, session).payload };
 }
 
-function insertTransaction(db, session, { bankAccountId, postedOn, description, amountCents, source }) {
+export function addStatementLine(db, session, { bankAccountId, postedOn, description, amountCents, source }) {
   const account = accountFor(db, session, bankAccountId);
   if (!account) return fail(400, "Choose an account from this client's Banking screen.");
   const date = parseDate(postedOn);
@@ -339,7 +375,7 @@ export function createTransaction(db, session, input) {
   } catch (error) {
     return fail(error.status || 400, error.message);
   }
-  const inserted = insertTransaction(db, session, {
+  const inserted = addStatementLine(db, session, {
     bankAccountId: body.bankAccountId,
     postedOn: body.postedOn,
     description: body.description,
@@ -388,7 +424,7 @@ export function importTransactions(db, session, input) {
   db.exec("BEGIN IMMEDIATE");
   try {
     for (const row of parsed) {
-      const inserted = insertTransaction(db, session, { bankAccountId: account.id, source: "csv", ...row });
+      const inserted = addStatementLine(db, session, { bankAccountId: account.id, source: "csv", ...row });
       if (inserted.error) throw Object.assign(new Error(inserted.error), { status: inserted.status });
       ids.push(inserted.id);
     }
