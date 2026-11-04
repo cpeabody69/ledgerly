@@ -13,6 +13,12 @@ export const firms = {
       ["Brightline Labs", "Brightline Labs", "BL", "Technology"],
       ["Mason & Finch", "Mason & Finch", "MF", "Professional services"],
     ],
+    portal: {
+      email: "casey@brightline.example",
+      password: "ledgerly-client",
+      name: "Casey Nguyen",
+      clientName: "Brightline Labs",
+    },
   },
   harbor: {
     name: "Harbor Street Advisors",
@@ -25,5 +31,11 @@ export const firms = {
       ["Cedar & Pine Goods", "Cedar & Pine Goods", "CP", "Retail"],
       ["Lumen Field Studio", "Lumen Field Studio", "LF", "Design"],
     ],
+    portal: {
+      email: "rowan@cedar.example",
+      password: "ledgerly-client",
+      name: "Rowan Ellis",
+      clientName: "Cedar & Pine Goods",
+    },
   },
 };

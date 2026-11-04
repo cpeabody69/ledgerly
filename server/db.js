@@ -10,6 +10,7 @@ import { ensureDocuments } from "./documents.js";
 import { ensureInvoices } from "./invoices.js";
 import { ensureExpenses } from "./expenses.js";
 import { ensureTime } from "./time.js";
+import { ensurePortal, loadPortalSession, portalPayload, signInPortal, signOutPortal } from "./portal.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -40,6 +41,16 @@ CREATE TABLE IF NOT EXISTS clients (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS client_users (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  client_id TEXT NOT NULL REFERENCES clients(id),
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   token TEXT NOT NULL UNIQUE,
@@ -50,15 +61,27 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS client_sessions (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  client_user_id TEXT NOT NULL REFERENCES client_users(id),
+  client_id TEXT NOT NULL REFERENCES clients(id),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY,
   firm_id TEXT NOT NULL REFERENCES firms(id),
-  actor_user_id TEXT NOT NULL REFERENCES users(id),
+  actor_user_id TEXT REFERENCES users(id),
+  client_user_id TEXT REFERENCES client_users(id),
   action TEXT NOT NULL,
   client_id TEXT REFERENCES clients(id),
   entity_type TEXT,
   entity_id TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  CHECK (actor_user_id IS NOT NULL OR client_user_id IS NOT NULL)
 );
 `;
 
@@ -95,6 +118,7 @@ export function openDatabase(dbPath) {
   ensureInvoices(db);
   ensureExpenses(db);
   ensureTime(db);
+  ensurePortal(db);
   return db;
 }
 
@@ -154,6 +178,7 @@ function memberJson(row) {
 }
 
 export function sessionPayload(db, session) {
+  if (session.portal) return portalPayload(db, session);
   const user = db.prepare("SELECT id, firm_id, email, name, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
   const firm = db.prepare("SELECT id, name, require_receipt FROM firms WHERE id = ?").get(session.firm_id);
   const clients = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id).map(clientJson);
@@ -176,7 +201,8 @@ export function loadSession(db, token) {
      JOIN users ON users.id = sessions.user_id AND users.firm_id = sessions.firm_id
      WHERE sessions.token = ? AND sessions.expires_at > ?`,
   ).get(token, new Date().toISOString());
-  return row || null;
+  if (row) return row;
+  return loadPortalSession(db, token);
 }
 
 function audit(db, session, action, { clientId = null, entityType = null, entityId = null } = {}) {
@@ -186,8 +212,10 @@ function audit(db, session, action, { clientId = null, entityType = null, entity
 }
 
 export function signIn(db, email, password) {
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(String(email || "").trim().toLowerCase());
-  if (!user || !verifyPassword(password || "", user.password_hash)) return null;
+  const normalized = String(email || "").trim().toLowerCase();
+  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalized);
+  if (!user) return signInPortal(db, normalized, password);
+  if (!verifyPassword(password || "", user.password_hash)) return null;
   const client = db.prepare("SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1").get(user.firm_id);
   if (!client) return null;
   const now = new Date();
@@ -208,6 +236,10 @@ export function signIn(db, email, password) {
 
 export function signOut(db, session) {
   if (!session) return;
+  if (session.portal) {
+    signOutPortal(db, session);
+    return;
+  }
   audit(db, session, "session.ended");
   db.prepare("DELETE FROM sessions WHERE id = ? AND firm_id = ?").run(session.id, session.firm_id);
 }
@@ -269,6 +301,8 @@ export function inviteMember(db, session, input) {
   if (password.length < 8) return { status: 400, error: "Use a password of at least 8 characters." };
   const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
   if (existing) return { status: 409, error: "That email already has an account." };
+  const existingPortal = db.prepare("SELECT id FROM client_users WHERE email = ?").get(email);
+  if (existingPortal) return { status: 409, error: "That email already has an account." };
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(

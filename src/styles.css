@@ -2029,5 +2029,15 @@ inherits:false}
 .books-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .books-table .trial-total td{color:var(--navy);border-top:1px solid #cbd4df;font-weight:700}
 .books-table .journal-group td{background:#f8fafc}
+.client-portal{min-height:100vh;background:var(--bg)}
+.portal-bar{z-index:8;background:#fff;border-bottom:1px solid var(--border);justify-content:space-between;align-items:center;height:73px;padding:0 34px;display:flex;position:sticky;top:0}
+.portal-account{align-items:center;gap:12px;display:flex}
+.portal-account b,.portal-account small{display:block}
+.portal-account b{font-size:13px}
+.portal-account small{color:var(--muted);margin-top:2px;font-size:11px}
+.portal-stack{gap:16px;display:grid}
+.portal-upload{justify-content:flex-end;align-items:center;gap:10px;display:flex}
+.portal-upload input[type=file]{max-width:260px;font-size:12px}
+.portal-stack td small{color:#8492a3;display:block;margin-top:3px;font-size:11px}
 .posted-at{color:#8492a3;display:block;margin-top:3px;font-size:8px}
 .books-error{padding:12px 17px 0}

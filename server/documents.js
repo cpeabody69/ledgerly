@@ -11,8 +11,10 @@ CREATE TABLE IF NOT EXISTS client_files (
   bytes BLOB NOT NULL,
   request_id TEXT REFERENCES document_requests(id),
   transaction_id TEXT,
-  created_by TEXT NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL
+  created_by TEXT REFERENCES users(id),
+  client_user_id TEXT REFERENCES client_users(id),
+  created_at TEXT NOT NULL,
+  CHECK (created_by IS NOT NULL OR client_user_id IS NOT NULL)
 );
 `;
 
@@ -25,8 +27,20 @@ function fail(status, error) {
 
 function audit(db, session, action, { clientId = null, entityType = null, entityId = null } = {}) {
   db.prepare(
-    "INSERT INTO audit_events (id, firm_id, actor_user_id, action, client_id, entity_type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(randomUUID(), session.firm_id, session.user_id, action, clientId, entityType, entityId, new Date().toISOString());
+    `INSERT INTO audit_events (
+      id, firm_id, actor_user_id, client_user_id, action, client_id, entity_type, entity_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    randomUUID(),
+    session.firm_id,
+    session.portal ? null : session.user_id,
+    session.portal ? session.client_user_id : null,
+    action,
+    clientId,
+    entityType,
+    entityId,
+    new Date().toISOString(),
+  );
 }
 
 export function ensureDocuments(db) {
@@ -144,9 +158,22 @@ export function storeDocument(db, session, input) {
   try {
     db.prepare(
       `INSERT INTO client_files (
-        id, firm_id, client_id, name, media_type, byte_size, bytes, request_id, transaction_id, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, session.firm_id, client.id, name, mediaType, bytes.length, bytes, requestId, transactionId, session.user_id, now);
+        id, firm_id, client_id, name, media_type, byte_size, bytes, request_id, transaction_id, created_by, client_user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      session.firm_id,
+      client.id,
+      name,
+      mediaType,
+      bytes.length,
+      bytes,
+      requestId,
+      transactionId,
+      session.portal ? null : session.user_id,
+      session.portal ? session.client_user_id : null,
+      now,
+    );
     if (request) {
       db.prepare(
         "UPDATE document_requests SET status = 'complete' WHERE id = ? AND firm_id = ?",

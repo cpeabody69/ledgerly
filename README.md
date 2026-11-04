@@ -22,6 +22,8 @@ Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:8787. `npm start
 | --- | --- | --- | --- |
 | Northstar | olivia@northstarcreative.co | ledgerly-northstar | Owner (shown as Administrator) |
 | Harbor Street Advisors | jordan@harborstreet.example | ledgerly-harbor | Owner |
+| Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-client | Client |
+| Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-client | Client |
 
 An owner invites a staff or manager user from Settings. That person can sign in with the email and password entered on the invite. Staff and managers cannot invite. Any signed-in member of the firm can post a journal entry to the open client.
 
@@ -77,6 +79,10 @@ The Expenses screen lists the open client’s bills and paid expenses. Saving an
 ## Time
 
 Each firm user has a staff record in addition to the phase 1 role. Time is entered against a client and a piece of work. Owners and managers can see time by client and open another person’s entries. A staff user sees and opens only their own. Creating an invoice from selected time saves one draft through the invoice flow. Its amount matches those hours. The ledger is unchanged until that invoice is sent. Wages are not posted.
+
+## Client portal
+
+A client signs in with their own account. Brightline Labs uses `casey@brightline.example` / `ledgerly-client`. Cedar & Pine Goods uses `rowan@cedar.example` / `ledgerly-client`. The page is the same Ledgerly sign-in. After sign-in the client sees that one client’s requests, files, and invoices. Submitting a file on an open request stores it and marks the request received. The firm’s open-request list updates when that person signs back in. Journal, statement, and other-client routes answer 404. The client does not post journal entries, send invoices, or open the firm sidebar.
 
 ## Still the published picture
 

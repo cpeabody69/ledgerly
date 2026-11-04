@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Portal } from "./Portal.jsx";
 import { Te } from "./Shell.jsx";
 
 export function App() {
@@ -25,6 +26,7 @@ export function App() {
 
   if (session === undefined) return <div className="sign-in" />;
   if (!session) return <SignIn onSession={setSession} />;
+  if (session.portal) return <Portal session={session} onSession={setSession} />;
   return <Te session={session} onSession={setSession} />;
 }
 
@@ -72,7 +74,7 @@ function SignIn({ onSession }) {
           <span>Ledgerly</span>
         </div>
         <h1>Sign in</h1>
-        <p className="lede">Open your firm and the client books you work on.</p>
+        <p className="lede">Sign in to Ledgerly.</p>
         <label className="field">
           <span>Email</span>
           <input
