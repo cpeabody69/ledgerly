@@ -442,6 +442,135 @@ function dashboardFor(bills, today) {
   };
 }
 
+const AGING_BUCKETS = [
+  ["current", "Current"],
+  ["days1to30", "1–30"],
+  ["days31to60", "31–60"],
+  ["days61to90", "61–90"],
+  ["days90plus", "90+"],
+];
+
+function daysPastDue(dueDate, today) {
+  const [dueYear, dueMonth, dueDay] = dueDate.split("-").map(Number);
+  const [year, month, day] = today.split("-").map(Number);
+  const due = Date.UTC(dueYear, dueMonth - 1, dueDay);
+  const asOf = Date.UTC(year, month - 1, day);
+  return Math.round((asOf - due) / 86400000);
+}
+
+function agingBucketId(days) {
+  if (days <= 0) return "current";
+  if (days <= 30) return "days1to30";
+  if (days <= 60) return "days31to60";
+  if (days <= 90) return "days61to90";
+  return "days90plus";
+}
+
+function emptyAgingAmounts() {
+  return {
+    currentCents: 0,
+    days1to30Cents: 0,
+    days31to60Cents: 0,
+    days61to90Cents: 0,
+    days90plusCents: 0,
+    totalCents: 0,
+  };
+}
+
+function withAgingAmounts(cents) {
+  return {
+    ...cents,
+    current: formatMoney(cents.currentCents),
+    days1to30: formatMoney(cents.days1to30Cents),
+    days31to60: formatMoney(cents.days31to60Cents),
+    days61to90: formatMoney(cents.days61to90Cents),
+    days90plus: formatMoney(cents.days90plusCents),
+    total: formatMoney(cents.totalCents),
+  };
+}
+
+function agingFor(bills, today) {
+  const open = bills.filter((bill) => bill.status === "posted" && bill.openCents > 0);
+  const byVendor = new Map();
+  for (const bill of open) {
+    const days = daysPastDue(bill.dueDate, today);
+    const bucketId = agingBucketId(days);
+    const vendor = byVendor.get(bill.vendorId) || {
+      vendorId: bill.vendorId,
+      vendorName: bill.vendorName,
+      ...emptyAgingAmounts(),
+      bills: [],
+    };
+    vendor[`${bucketId}Cents`] = addCents(vendor[`${bucketId}Cents`], bill.openCents);
+    vendor.totalCents = addCents(vendor.totalCents, bill.openCents);
+    vendor.bills.push({
+      id: bill.id,
+      invoiceNumber: bill.invoiceNumber,
+      dueDate: bill.dueDate,
+      dueDateLabel: bill.dueDateLabel,
+      daysPastDue: Math.max(0, days),
+      bucketId,
+      bucketLabel: AGING_BUCKETS.find(([id]) => id === bucketId)[1],
+      openCents: bill.openCents,
+      open: bill.open,
+    });
+    byVendor.set(bill.vendorId, vendor);
+  }
+  const totals = emptyAgingAmounts();
+  const vendors = [...byVendor.values()]
+    .map((vendor) => {
+      for (const [id] of AGING_BUCKETS) totals[`${id}Cents`] = addCents(totals[`${id}Cents`], vendor[`${id}Cents`]);
+      totals.totalCents = addCents(totals.totalCents, vendor.totalCents);
+      vendor.bills.sort((left, right) => left.dueDate.localeCompare(right.dueDate) || left.invoiceNumber.localeCompare(right.invoiceNumber));
+      return withAgingAmounts(vendor);
+    })
+    .sort((left, right) => left.vendorName.localeCompare(right.vendorName));
+  const counts = Object.fromEntries(AGING_BUCKETS.map(([id]) => [id, 0]));
+  for (const vendor of vendors) {
+    for (const bill of vendor.bills) counts[bill.bucketId] += 1;
+  }
+  return {
+    asOf: today,
+    asOfLabel: formatDate(today),
+    outstandingCents: totals.totalCents,
+    outstanding: formatMoney(totals.totalCents),
+    buckets: AGING_BUCKETS.map(([id, label]) => ({
+      id,
+      label,
+      count: counts[id],
+      cents: totals[`${id}Cents`],
+      amount: formatMoney(totals[`${id}Cents`]),
+    })),
+    vendors,
+    total: withAgingAmounts(totals),
+  };
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  if (/[",\n]/.test(text)) return `"${text.replaceAll("\"", "\"\"")}"`;
+  return text;
+}
+
+export function agingCsv(aging) {
+  const lines = [
+    ["As of", aging.asOfLabel].map(csvCell).join(","),
+    ["Vendor", "Current", "1-30", "31-60", "61-90", "90+", "Total"].map(csvCell).join(","),
+  ];
+  for (const vendor of aging.vendors) {
+    lines.push([vendor.vendorName, vendor.current, vendor.days1to30, vendor.days31to60, vendor.days61to90, vendor.days90plus, vendor.total].map(csvCell).join(","));
+  }
+  lines.push(["Total", aging.total.current, aging.total.days1to30, aging.total.days31to60, aging.total.days61to90, aging.total.days90plus, aging.total.total].map(csvCell).join(","));
+  lines.push("");
+  lines.push(["Vendor", "Invoice", "Due date", "Days past due", "Bucket", "Open balance"].map(csvCell).join(","));
+  for (const vendor of aging.vendors) {
+    for (const bill of vendor.bills) {
+      lines.push([vendor.vendorName, bill.invoiceNumber, bill.dueDate, bill.daysPastDue, bill.bucketLabel, bill.open].map(csvCell).join(","));
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 function loadApprovals(db, session) {
   return db.prepare(
     `SELECT ap_approvals.*, users.name AS actor_name
@@ -587,6 +716,17 @@ function books(db, session) {
     payments,
     vendors: vendors.map((row) => vendorJson(row, bills, payments)),
     dashboard: dashboardFor(bills, todayIso()),
+    aging: agingFor(bills, todayIso()),
+  };
+}
+
+export function readAgingCsv(db, session) {
+  ensurePayables(db);
+  const aging = books(db, session).aging;
+  return {
+    status: 200,
+    csv: agingCsv(aging),
+    filename: `ap-aging-${aging.asOf}.csv`,
   };
 }
 

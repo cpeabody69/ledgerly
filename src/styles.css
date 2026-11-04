@@ -2083,7 +2083,8 @@ inherits:false}
 .books-error{padding:12px 17px 0}
 .banking-alert{margin:-8px 0 16px;padding:10px 12px;border:1px solid #f0c9c4;border-radius:7px;background:#fff6f5}
 .payables-page{position:relative}
-.payables-page>.tab-bar{margin-bottom:16px}
+.payables-page>.tab-bar{margin-bottom:16px;flex-wrap:wrap}
+.aging-metrics{grid-template-columns:repeat(5,minmax(0,1fr))}
 .payables-page .detail-drawer{position:fixed;z-index:95}
 .modal.wide{width:min(720px,100%)}
 .bill-lines{display:flex;flex-direction:column;gap:8px}
