@@ -1136,7 +1136,9 @@ margin-bottom:3px;
 font-size:16px;
 display:block}
 .client-page .portal-stats{display:flex;flex-wrap:wrap}
-.client-page .detail-drawer{position:fixed;z-index:95}
+.client-page .detail-drawer,.documents-page .detail-drawer{position:fixed;z-index:95}
+.documents-page .field input,.documents-page .field select{width:100%;border:1px solid #d5dee8;border-radius:8px;padding:8px 10px;font:inherit;background:#fff}
+.documents-page .drawer-section .field{margin-bottom:8px}
 .client-filters{display:flex;gap:10px;align-items:end}
 .client-filters .field{min-width:140px}
 .client-filters .field span{display:block;margin-bottom:4px;color:#718095;font-size:9px}

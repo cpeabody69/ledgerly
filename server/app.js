@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { createClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { archiveClient, listFirm, readClient, updateClient } from "./clients.js";
-import { createDocumentRequest, listDocuments, readDocument, removeDocument, storeDocument } from "./documents.js";
+import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
 import { listPortal, readPortalDocument, submitPortalFile } from "./portal.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
@@ -469,13 +469,64 @@ async function handle(req, res, db, options) {
     return;
   }
 
+  if (pathname === "/api/documents/library" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readLibrary(db, session, {
+      q: url.searchParams.get("q") || "",
+      category: url.searchParams.get("category") || "",
+      taxYear: url.searchParams.get("taxYear") || "",
+      status: url.searchParams.get("status") || "",
+      folderId: url.searchParams.get("folderId") || "",
+    });
+    send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/documents/folders" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = createFolder(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const documentExtra = pathname.match(/^\/api\/documents\/([^/]+)\/(archive|tags|notes)$/);
+  if (documentExtra && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const fileId = decodeURIComponent(documentExtra[1]);
+    const action = documentExtra[2];
+    const result = action === "archive"
+      ? archiveDocument(db, session, fileId)
+      : action === "tags"
+        ? addTag(db, session, fileId, await readBody(req))
+        : addNote(db, session, fileId, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
   const documentMatch = pathname.match(/^\/api\/documents\/([^/]+)$/);
-  if (documentMatch && (req.method === "GET" || req.method === "DELETE")) {
+  if (documentMatch && (req.method === "GET" || req.method === "DELETE" || req.method === "PATCH")) {
     if (!session) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
     const id = decodeURIComponent(documentMatch[1]);
+    if (req.method === "PATCH") {
+      const result = updateDocument(db, session, id, await readBody(req));
+      if (result.error) send(res, result.status, { error: result.error });
+      else send(res, result.status, result.payload);
+      return;
+    }
     if (req.method === "DELETE") {
       const result = removeDocument(db, session, id);
       if (result.error) send(res, result.status, { error: result.error });
