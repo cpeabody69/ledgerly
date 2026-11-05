@@ -16,6 +16,7 @@ import { ensureTax } from "./tax.js";
 import { ensureAssistant } from "./assistant.js";
 import { ensureSubscription, openSeatError, subscriptionBlocksWork, subscriptionSummary } from "./subscription.js";
 import { ensurePlaid } from "./plaid.js";
+import { ensureQuickBooks } from "./quickbooks/index.js";
 import { ensurePayables } from "./payables.js";
 import { ensureDemoTables } from "./demo.js";
 import { ROLE_LABEL, EMPLOYEE_ROLES, canManageFirm } from "./permissions.js";
@@ -139,6 +140,7 @@ export function openDatabase(dbPath) {
   ensureAssistant(db);
   ensureSubscription(db);
   ensurePlaid(db);
+  ensureQuickBooks(db);
   ensurePayables(db);
   ensureWork(db);
   ensureDemoTables(db);
