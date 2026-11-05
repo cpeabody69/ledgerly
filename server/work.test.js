@@ -194,13 +194,8 @@ test("work tasks persist, match the queue counts, and stay inside the firm", asy
     assert.equal(after.completedThisMonth, after.tasks.filter((task) => task.status === "completed" && completedDay(task.completedAt) >= after.month.start && completedDay(task.completedAt) <= after.month.end).length);
     assert.equal(after.completedThisMonth >= 1, true);
 
-    const invited = await sendJson(olivia, base, "POST", "/api/members", {
-      name: "Sam Lee",
-      email: "sam@northstarcreative.co",
-      role: "staff",
-      password: "ledgerly-staff",
-    });
-    const samId = invited.body.members.find((member) => member.email === "sam@northstarcreative.co").id;
+    const roster = await (await olivia.fetch(`${base}/api/session`)).json();
+    const samId = roster.members.find((member) => member.email === "sam@northstarcreative.co").id;
     const assigned = await sendJson(olivia, base, "POST", "/api/tasks", {
       title: "Sam's filing",
       assigneeId: samId,
@@ -208,7 +203,7 @@ test("work tasks persist, match the queue counts, and stay inside the firm", asy
     });
     await sendJson(olivia, base, "POST", "/api/tasks", { title: "Owner only queue", dueOn: after.today });
     const sam = cookieJar();
-    const samSession = await signIn(sam, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    const samSession = await signIn(sam, base, firms.northstar.members.find((member) => member.email === "sam@northstarcreative.co"));
     assert.equal(samSession.user.role, "staff");
     const mine = await (await sam.fetch(`${base}/api/tasks`)).json();
     assert.equal(mine.scopeLabel, "My Tasks");
@@ -422,17 +417,12 @@ test("assigning writes one notice, a second save does not repeat it, and marking
     const overdueTwice = await (await olivia.fetch(`${base}/api/notices`)).json();
     assert.equal(overdue(overdueTwice).length, 1);
 
-    const invited = await sendJson(olivia, base, "POST", "/api/members", {
-      name: "Sam Lee",
-      email: "sam@northstarcreative.co",
-      role: "staff",
-      password: "ledgerly-staff",
-    });
-    const samId = invited.body.members.find((member) => member.email === "sam@northstarcreative.co").id;
+    const roster = await (await olivia.fetch(`${base}/api/session`)).json();
+    const samId = roster.members.find((member) => member.email === "sam@northstarcreative.co").id;
     await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { assigneeId: samId });
     await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { assigneeId: samId, detail: "Same assignment" });
     const sam = cookieJar();
-    await signIn(sam, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    await signIn(sam, base, firms.northstar.members.find((member) => member.email === "sam@northstarcreative.co"));
     const samNotices = await (await sam.fetch(`${base}/api/notices`)).json();
     assert.equal(samNotices.notices.filter((notice) => notice.kind === "reassigned" && notice.taskId === taskId).length, 1);
     await sendJson(olivia, base, "POST", `/api/tasks/${taskId}/complete`);

@@ -71,7 +71,7 @@ test("firm seats gate invites, and a firm payment leaves the client trial balanc
     const signedIn = await signIn(olivia, base, firms.northstar.owner);
     assert.equal(signedIn.response.status, 200);
     assert.equal(signedIn.body.subscription.planName, "Practice");
-    assert.equal(signedIn.body.subscription.seatsUsed, 1);
+    assert.equal(signedIn.body.subscription.seatsUsed, 4);
     assert.equal(signedIn.body.subscription.seatLimit, 5);
     assert.equal(signedIn.body.members.length, signedIn.body.subscription.seatsUsed);
     assert.equal(JSON.stringify(signedIn.body).toLowerCase().includes("compliance"), false);
@@ -80,7 +80,7 @@ test("firm seats gate invites, and a firm payment leaves the client trial balanc
     const opened = await sendJson(olivia, base, "GET", "/api/subscription");
     assert.equal(opened.response.status, 200);
     assert.deepEqual(opened.body.billing, []);
-    assert.equal(opened.body.subscription.seatsUsed, 1);
+    assert.equal(opened.body.subscription.seatsUsed, 4);
 
     const drafted = await sendJson(olivia, base, "POST", "/api/invoices", {
       customerName: "Fixture Customer",
@@ -117,7 +117,7 @@ test("firm seats gate invites, and a firm payment leaves the client trial balanc
     assert.equal(billed.body.billing[0].memo, "Ledgerly practice plan");
     assert.equal(billed.body.billing[0].actorName, "Olivia Martin");
     assert.equal(JSON.stringify(billed.body).toLowerCase().includes("compliance"), false);
-    assert.equal(billed.body.subscription.seatsUsed, 1);
+    assert.equal(billed.body.subscription.seatsUsed, 4);
 
     const numbered = await sendJson(olivia, base, "POST", "/api/subscription/payments", { amount: 40, memo: "Again" });
     assert.equal(numbered.response.status, 400);
@@ -144,57 +144,57 @@ test("firm seats gate invites, and a firm payment leaves the client trial balanc
 
     const invited = await sendJson(olivia, base, "POST", "/api/members", {
       name: "Sam Rivera",
-      email: "sam@northstarcreative.co",
+      email: "sam.rivera@northstarcreative.co",
       role: "staff",
-      password: "ledgerly-staff",
+      password: "ledgerly-rivera",
     });
     assert.equal(invited.response.status, 201);
-    assert.equal(invited.body.subscription.seatsUsed, 2);
-    assert.equal(invited.body.members.length, 2);
+    assert.equal(invited.body.subscription.seatsUsed, 5);
+    assert.equal(invited.body.members.length, 5);
 
     const staff = cookieJar();
-    const staffSignIn = await signIn(staff, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    const staffSignIn = await signIn(staff, base, { email: "sam.rivera@northstarcreative.co", password: "ledgerly-rivera" });
     assert.equal(staffSignIn.response.status, 200);
     const staffSeats = await sendJson(staff, base, "PATCH", "/api/subscription", { seatLimit: 4 });
     assert.equal(staffSeats.response.status, 403);
     const staffPay = await sendJson(staff, base, "POST", "/api/subscription/payments", { amount: "10.00", memo: "Staff try" });
     assert.equal(staffPay.response.status, 403);
 
-    const tightened = await sendJson(olivia, base, "PATCH", "/api/subscription", { seatLimit: 2 });
+    const tightened = await sendJson(olivia, base, "PATCH", "/api/subscription", { seatLimit: 5 });
     assert.equal(tightened.response.status, 200);
-    assert.equal(tightened.body.subscription.seatLimit, 2);
+    assert.equal(tightened.body.subscription.seatLimit, 5);
     assert.equal(tightened.body.subscription.seatsOpen, 0);
     const blocked = await sendJson(olivia, base, "POST", "/api/members", {
       name: "Alex Kim",
       email: "alex@northstarcreative.co",
       role: "staff",
-      password: "ledgerly-staff",
+      password: "ledgerly-alex",
     });
     assert.equal(blocked.response.status, 409);
     assert.match(blocked.body.error, /open seats/i);
     const still = await (await olivia.fetch(`${base}/api/session`)).json();
     assert.equal(still.members.some((member) => member.email === "alex@northstarcreative.co"), false);
-    assert.equal(still.subscription.seatsUsed, 2);
+    assert.equal(still.subscription.seatsUsed, 5);
 
-    const openedUp = await sendJson(olivia, base, "PATCH", "/api/subscription", { seatLimit: 3 });
+    const openedUp = await sendJson(olivia, base, "PATCH", "/api/subscription", { seatLimit: 6 });
     assert.equal(openedUp.response.status, 200);
     const allowed = await sendJson(olivia, base, "POST", "/api/members", {
       name: "Alex Kim",
       email: "alex@northstarcreative.co",
       role: "manager",
-      password: "ledgerly-staff",
+      password: "ledgerly-alex",
     });
     assert.equal(allowed.response.status, 201);
-    assert.equal(allowed.body.subscription.seatsUsed, 3);
+    assert.equal(allowed.body.subscription.seatsUsed, 6);
     const alex = cookieJar();
-    const alexSignIn = await signIn(alex, base, { email: "alex@northstarcreative.co", password: "ledgerly-staff" });
+    const alexSignIn = await signIn(alex, base, { email: "alex@northstarcreative.co", password: "ledgerly-alex" });
     assert.equal(alexSignIn.response.status, 200);
-    assert.equal(alexSignIn.body.subscription.seatsUsed, 3);
+    assert.equal(alexSignIn.body.subscription.seatsUsed, 6);
 
-    const tooSmall = await sendJson(olivia, base, "PATCH", "/api/subscription", { seatLimit: 2 });
+    const tooSmall = await sendJson(olivia, base, "PATCH", "/api/subscription", { seatLimit: 5 });
     assert.equal(tooSmall.response.status, 400);
     const kept = await (await olivia.fetch(`${base}/api/subscription`)).json();
-    assert.equal(kept.subscription.seatLimit, 3);
+    assert.equal(kept.subscription.seatLimit, 6);
 
     const afterSeats = await (await olivia.fetch(`${base}/api/ledger`)).json();
     assert.equal(afterSeats.trialBalance.debitsCents, beforeDebits);

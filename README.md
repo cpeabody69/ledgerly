@@ -18,19 +18,24 @@ Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:8787. `npm start
 
 ## Synthetic sign-in
 
+Each person has their own email and password. Signing in identifies that person and opens their firm. A password does not sign in a different person, including someone at the same firm or at another firm.
+
 | Firm | Email | Password | Role |
 | --- | --- | --- | --- |
-| Northstar | olivia@northstarcreative.co | ledgerly-northstar | Owner (shown as Administrator) |
-| Harbor Street Advisors | jordan@harborstreet.example | ledgerly-harbor | Owner |
+| Northstar | olivia@northstarcreative.co | ledgerly-olivia | Owner (shown as Administrator) |
+| Northstar | morgan@northstarcreative.co | ledgerly-morgan | Manager |
+| Northstar | sam@northstarcreative.co | ledgerly-sam | Staff |
+| Northstar | riley@northstarcreative.co | ledgerly-riley | Staff |
+| Harbor Street Advisors | jordan@harborstreet.example | ledgerly-jordan | Owner |
 | Ledgerly Demo (fictional) | avery@ledgerly-demo.example | ledgerly-demo | Owner |
-| Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-client | Client |
-| Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-client | Client |
+| Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-casey | Client |
+| Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-rowan | Client |
 
-An owner invites a staff or manager user from Settings. That person can sign in with the email and password entered on the invite. Staff and managers cannot invite. Any signed-in member of the firm can post a journal entry to the open client.
+An owner invites another staff or manager user from Settings. That person signs in with the email and password entered on the invite. Staff and managers cannot invite. Any signed-in member of the firm can post a journal entry to the open client.
 
 ## Post a sample entry as Olivia
 
-1. Sign in as `olivia@northstarcreative.co` / `ledgerly-northstar`.
+1. Sign in as `olivia@northstarcreative.co` / `ledgerly-olivia`.
 2. The open client is Northstar Creative. If it is not, switch to Northstar Creative.
 3. Open Accounting. The chart is the small-service template and the three cards are `$0.00` until something is posted.
 4. Choose **New journal entry**. This is a journal form, not the transaction composer.
@@ -83,7 +88,7 @@ Each firm user has a staff record in addition to the phase 1 role. Time is enter
 
 ## Client portal
 
-A client signs in with their own account. Brightline Labs uses `casey@brightline.example` / `ledgerly-client`. Cedar & Pine Goods uses `rowan@cedar.example` / `ledgerly-client`. The page is the same Ledgerly sign-in. After sign-in the client sees that one client’s requests, files, and invoices. Submitting a file on an open request stores it and marks the request received. The firm’s open-request list updates when that person signs back in. Journal, statement, and other-client routes answer 404. The client does not post journal entries, send invoices, or open the firm sidebar.
+A client signs in with their own account. Brightline Labs uses `casey@brightline.example` / `ledgerly-casey`. Cedar & Pine Goods uses `rowan@cedar.example` / `ledgerly-rowan`. Casey’s password does not sign in Rowan, and Rowan’s password does not sign in Casey. The page is the same Ledgerly sign-in. After sign-in the client sees that one client’s requests, files, and invoices. Submitting a file on an open request stores it and marks the request received. The firm’s open-request list updates when that person signs back in. Journal, statement, and other-client routes answer 404. The client does not post journal entries, send invoices, or open the firm sidebar.
 
 ## Tax readiness
 
