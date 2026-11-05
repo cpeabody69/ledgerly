@@ -14,7 +14,18 @@ import { bulkTransactions, categorizeTransaction, completeReconciliation, create
 import { readStatements } from "./statements.js";
 import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } from "./tax.js";
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
-import { readSubscription, recordFirmPayment, updateSeats } from "./subscription.js";
+import {
+  confirmCheckout,
+  handleStripeWebhook,
+  openStripeInvoice,
+  readSubscription,
+  recordFirmPayment,
+  refreshStripeSubscription,
+  startCheckout,
+  subscriptionWriteError,
+  updateSeats,
+  updateStripeSeats,
+} from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
@@ -66,6 +77,39 @@ function setSessionCookie(token) {
 
 function clearSessionCookie() {
   return `${COOKIE}=; ${cookieSuffix()}; Max-Age=0`;
+}
+
+function readRawBody(req, limit = 262144) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(Object.assign(new Error("Body is too large."), { status: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function requestOrigin(req) {
+  const host = String(req.headers.host || "127.0.0.1");
+  const origin = String(req.headers.origin || "");
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      if (url.host === host) return url.origin;
+    } catch {
+      return `http://${host}`;
+    }
+  }
+  const forwarded = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  return `${forwarded === "https" ? "https" : "http"}://${host}`;
 }
 
 function readBody(req) {
@@ -135,6 +179,14 @@ async function handle(req, res, db, options) {
   const blocked = crossSiteError(req);
   if (blocked) {
     send(res, 403, { error: blocked });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/stripe/webhook") {
+    const raw = await readRawBody(req);
+    const result = handleStripeWebhook(db, raw, req.headers["stripe-signature"] || "");
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 
@@ -217,6 +269,12 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, 404, { error: "Not found." });
+    return;
+  }
+
+  const subscriptionError = subscriptionWriteError(db, session, req.method, pathname);
+  if (subscriptionError) {
+    send(res, 403, { error: subscriptionError });
     return;
   }
 
@@ -894,6 +952,64 @@ async function handle(req, res, db, options) {
       return;
     }
     const result = recordFirmPayment(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/checkout" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await startCheckout(db, session, await readBody(req), {
+      origin: requestOrigin(req),
+      stripeRequest: options.stripeRequest,
+    });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/checkout/confirm" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await confirmCheckout(db, session, await readBody(req), { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/refresh" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await refreshStripeSubscription(db, session, { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/seats" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await updateStripeSeats(db, session, await readBody(req), { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/invoice" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await openStripeInvoice(db, session, { stripeRequest: options.stripeRequest });
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;

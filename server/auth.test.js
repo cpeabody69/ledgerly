@@ -57,6 +57,20 @@ function linkToken(linkPath, base) {
   return new URL(linkPath, base).searchParams.get("token");
 }
 
+function markSubscriptionActive(dbPath, firmName, seatLimit = 5) {
+  const db = new DatabaseSync(dbPath);
+  const firm = db.prepare("SELECT id FROM firms WHERE name = ?").get(firmName);
+  assert.ok(firm, firmName);
+  const updated = db.prepare(
+    `UPDATE firm_subscriptions
+     SET status = 'active', plan_name = 'Practice', seat_limit = ?, billing_exempt = 0,
+         stripe_customer_id = 'cus_test_auth', stripe_subscription_id = 'sub_test_auth', updated_at = ?
+     WHERE firm_id = ?`,
+  ).run(seatLimit, new Date().toISOString(), firm.id);
+  assert.equal(Number(updated.changes), 1, firmName);
+  db.close();
+}
+
 async function mailbox(jar, base, email) {
   const response = await jar.fetch(`${base}/api/dev/mailbox?email=${encodeURIComponent(email)}`);
   const body = await response.json();
@@ -183,6 +197,21 @@ test("registration, verification, sessions, invitations, roles, and isolation", 
       const required = await post(jar, base, "/api/onboarding/step", { step: "firm_profile", status: "skipped" });
       assert.equal(required.response.status, 400);
 
+      const gatedEnter = await post(jar, base, "/api/onboarding/enter", {});
+      assert.equal(gatedEnter.response.status, 403);
+      assert.match(gatedEnter.body.error, /plan/i);
+      const gatedClient = await post(jar, base, "/api/clients", {
+        name: "Northwind Supply",
+        legalName: "Northwind Supply LLC",
+        industry: "Wholesale",
+        businessType: "LLC",
+        accountingMethod: "cash",
+        fiscalYearStart: "July",
+      });
+      assert.equal(gatedClient.response.status, 403);
+      assert.match(gatedClient.body.error, /plan/i);
+      markSubscriptionActive(dbPath, "Pine Ledger");
+
       const tooSoon = await post(jar, base, "/api/onboarding/enter", {});
       assert.equal(tooSoon.response.status, 400);
 
@@ -251,6 +280,7 @@ test("registration, verification, sessions, invitations, roles, and isolation", 
         accountingMethod: "accrual",
         fiscalYearStart: 1,
       });
+      markSubscriptionActive(dbPath, "Reset Ledger");
       await post(jar, base, "/api/clients", { name: "Reset Client", businessType: "LLC" });
       await post(jar, base, "/api/onboarding/enter", {});
 
@@ -313,6 +343,7 @@ test("registration, verification, sessions, invitations, roles, and isolation", 
         accountingMethod: "accrual",
         fiscalYearStart: 1,
       });
+      markSubscriptionActive(dbPath, "Ira Advisors");
       const client = await post(ownerJar, base, "/api/clients", { name: "Harbor Goods", businessType: "LLC" });
       const clientId = client.body.client.id;
       await post(ownerJar, base, "/api/onboarding/enter", {});

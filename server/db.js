@@ -14,7 +14,7 @@ import { ensureTime } from "./time.js";
 import { ensurePortal, loadPortalSession, portalPayload, signInPortal, signOutPortal } from "./portal.js";
 import { ensureTax } from "./tax.js";
 import { ensureAssistant } from "./assistant.js";
-import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscription.js";
+import { ensureSubscription, openSeatError, subscriptionBlocksWork, subscriptionSummary } from "./subscription.js";
 import { ensurePlaid } from "./plaid.js";
 import { ensurePayables } from "./payables.js";
 import { ensureDemoTables } from "./demo.js";
@@ -328,6 +328,8 @@ function initialsFor(name) {
 
 export function createClient(db, session, input) {
   if (!session?.firm_id) return { status: 400, error: "Create the firm profile first." };
+  const blocked = subscriptionBlocksWork(db, session.firm_id);
+  if (blocked) return { status: 403, error: blocked };
   const body = input || {};
   const name = String(body.name || "").trim();
   if (!name || name.length > 80) return { status: 400, error: "Enter a client name." };
@@ -353,6 +355,8 @@ export function createClient(db, session, input) {
 }
 
 export function inviteMember(db, session, input) {
+  const blocked = subscriptionBlocksWork(db, session.firm_id);
+  if (blocked) return { status: 403, error: blocked };
   const actor = db.prepare("SELECT role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
   if (!actor || !canManageFirm(actor.role)) {
     return { status: 403, error: "Only an owner or administrator can invite someone into the firm." };

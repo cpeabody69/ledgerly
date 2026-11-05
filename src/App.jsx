@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Portal } from "./Portal.jsx";
 import { Te } from "./Shell.jsx";
 import { ChecklistBanner, OnboardingScreen, PublicAuth } from "./AuthScreens.jsx";
+import { SubscribeReturn, SubscriptionBanner } from "./Subscription.jsx";
 
 const PUBLIC_PATHS = new Set(["/register", "/forgot-password", "/reset-password", "/verify-email", "/invitation"]);
 
@@ -44,6 +45,9 @@ export function App() {
   }, []);
 
   if (session === undefined) return <div className="sign-in" />;
+  if (path === "/subscribe/return" && session) {
+    return <SubscribeReturn session={session} onSession={setSession} go={go} />;
+  }
   if (PUBLIC_PATHS.has(path) || !session) {
     return <PublicAuth path={path} go={go} session={session} onSession={setSession} />;
   }
@@ -53,6 +57,7 @@ export function App() {
   if (session.portal) return <Portal session={session} onSession={setSession} />;
   return (
     <>
+      <SubscriptionBanner session={session} go={go} />
       <ChecklistBanner session={session} go={go} />
       <Te session={session} onSession={setSession} />
     </>

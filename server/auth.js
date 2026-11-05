@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { hashPassword, verifyPassword } from "./db.js";
 import { canInviteClient, canManageFirm, ROLE_LABEL } from "./permissions.js";
+import { subscriptionBlocksWork, subscriptionSummary } from "./subscription.js";
 import { ensureTime } from "./time.js";
 
 const HOUR = 60 * 60 * 1000;
@@ -465,6 +466,7 @@ export function onboardingPayload(db, session) {
       industry: client.industry,
     })),
     client: null,
+    subscription: firmRow ? subscriptionSummary(db, firmRow.id) : null,
     checklist: checklistFor(db, firmRow?.id || null, { force: true }),
   };
 }
@@ -726,6 +728,8 @@ export function enterWorkspace(db, session, startFirmSession) {
   if (!session) return { status: 401, error: "Sign in required." };
   if (!session.onboarding) return { status: 200, payload: null };
   if (!session.firm_id) return { status: 400, error: "Create the firm profile first." };
+  const blocked = subscriptionBlocksWork(db, session.firm_id);
+  if (blocked) return { status: 403, error: blocked };
   const client = db.prepare("SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1").get(session.firm_id);
   if (!client) return { status: 400, error: "Add a client before opening the workspace. The other steps can wait." };
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
@@ -772,6 +776,8 @@ export function createClientInvitation(db, session, clientId, input, { devMailbo
   if (!actor || !canInviteClient(actor.role)) {
     return { status: 403, error: "Only an owner, administrator, manager, or accountant can invite a client." };
   }
+  const blocked = subscriptionBlocksWork(db, session.firm_id);
+  if (blocked) return { status: 403, error: blocked };
   const client = db.prepare("SELECT id, name FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
   if (!client) return { status: 404, error: "Client not found." };
   const name = cleanName(input?.name);
@@ -1172,6 +1178,14 @@ export function onboardingPassthrough(method, pathname) {
   if ((method === "GET" || method === "DELETE") && pathname === "/api/session") return true;
   if ((method === "GET" || method === "POST") && pathname === "/api/clients") return true;
   if (method === "POST" && pathname === "/api/documents") return true;
+  if (method === "GET" && pathname === "/api/subscription") return true;
+  if (method === "POST" && (
+    pathname === "/api/subscription/checkout"
+    || pathname === "/api/subscription/checkout/confirm"
+    || pathname === "/api/subscription/refresh"
+    || pathname === "/api/subscription/seats"
+    || pathname === "/api/subscription/invoice"
+  )) return true;
   return false;
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SubscribeGate } from "./Subscription.jsx";
 
 const TERMS = "I agree to the Ledgerly Terms of Use for this workspace. This records acceptance for the account. It is not a legal opinion or a signed engagement letter.";
 const PRIVACY = "I agree to the Ledgerly Privacy notice. This build stores the account in its database. It does not send the address to an email provider.";
@@ -613,6 +614,21 @@ export function OnboardingScreen({ session, onSession, go }) {
     } finally {
       setPending(false);
     }
+  }
+
+  const needsPlan = firmReady && session.subscription && !session.subscription.allowsWork;
+  if (needsPlan) {
+    return (
+      <div className="sign-in onboarding-page">
+        <div className="auth-wide gate-card">
+          <Brand />
+          <h1>{session.firm.name}</h1>
+          <p className="lede">Choose a plan and a seat count. New work stays closed until the Stripe test subscription is active. No real charge is made.</p>
+          <SubscribeGate onSession={onSession} />
+          {!session.onboarding ? <button className="button ghost" type="button" onClick={() => go("/")}>Back to the books</button> : null}
+        </div>
+      </div>
+    );
   }
 
   return (

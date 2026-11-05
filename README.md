@@ -37,7 +37,7 @@ An organization owner or administrator invites an employee from Settings and set
 
 The sign-in page links to Create a firm account. The form asks for full name, work email, password, password confirmation, and acceptance of the Terms and the Privacy notice. The account stays unverified until the verification link is opened. After that, the owner enters the firm name, business type, country, time zone, accounting method, and fiscal year. That creates the organization and makes the creator the organization owner.
 
-The checklist that follows can add a client, send a portal invitation, upload a sample document, and mark or skip the chart, sandbox bank, Work Queue, and reports. Skipped steps stay on the checklist until they are resumed. Opening the workspace requires at least one client, because the books are per client.
+After the firm is saved, a new firm chooses a Ledgerly plan and a seat count. Stripe Checkout in test mode starts that subscription. The workspace does not open for new work until the subscription is active. The checklist that follows can add a client, send a portal invitation, upload a sample document, and mark or skip the chart, sandbox bank, Work Queue, and reports. Skipped steps stay on the checklist until they are resumed. Opening the workspace requires an active subscription and at least one client, because the books are per client. Northstar, Harbor Street Advisors, and Ledgerly Demo are sample firms and stay usable without Stripe.
 
 Email delivery is not configured. No mail provider is connected. Outside production, the API stores the verification, reset, and invitation links in a local development mailbox. Open it from the screen after registering, or request `GET /api/dev/mailbox?email=` on localhost. Set `LEDGERLY_DEV_MAILBOX=0` to hide that route. `NODE_ENV=production` hides it unless `LEDGERLY_DEV_MAILBOX=1`. Do not treat the mailbox as production email.
 
@@ -112,7 +112,34 @@ The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MO
 
 ## Firm subscription
 
-Settings shows Ledgerly’s plan for the firm. The plan is Practice. The seat count is the number of people who can be invited to sign in, and the seats in use are the owner, managers, and staff already on the firm. An owner changes the seat count. When every seat is in use, another invite is refused until the count is raised. Recording a firm payment stores it on the firm. It does not post a journal entry on a client, and it does not mark a client invoice paid.
+This is a test-mode gate. It is not production-ready. There is no live billing, no tax calculation, and no claim that a card was charged.
+
+Settings shows Ledgerly’s plan for the firm. Sample firms (Northstar, Harbor Street Advisors, and Ledgerly Demo) stay on the Practice plan without a Stripe customer. An owner of a sample firm can still change the seat count and record a firm payment. That payment is stored on the firm. It does not post a journal entry, invoice, bill, or balance on a client.
+
+A firm created through `/register` is different. After email verification and firm creation, the owner picks Practice or Firm and a seat count. Continue to Stripe test checkout only when `STRIPE_SECRET_KEY` is an `sk_test_` key and the matching price id is set. A live key is refused. If those values are missing, the plan screen says test keys are not configured and does not crash. The secret key, webhook secret, and price ids stay in the server environment. They are not written into the browser bundle.
+
+Stripe Checkout is test mode. The return URL asks the API to read that Checkout session and store the Stripe customer id and subscription id on the firm subscription, never on a client. `POST /api/stripe/webhook` accepts `checkout.session.completed`, subscription created/updated/deleted, `invoice.paid`, and `invoice.payment_failed`. The stored status is active, past due, or canceled. An active subscription allows normal firm work. Past due or canceled leaves the books readable and blocks new clients, journal entries, invoices, bills, and invites until it is paid. Adding an employee uses a seat. A full seat count blocks the next invite until the firm raises the quantity on the Stripe test subscription. A client portal user is not a seat.
+
+Copy `.env.example` to `.env` and set:
+
+```
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_PRACTICE=price_...
+STRIPE_PRICE_FIRM=price_...
+```
+
+Restart the API after saving `.env`. In the Stripe dashboard, create two recurring test prices and use card `4242 4242 4242 4242` with any future expiry and any CVC. That card is Stripe’s published test card, not a Ledgerly secret.
+
+Local webhook, from another terminal, after [the Stripe CLI](https://docs.stripe.com/stripe-cli) is logged into test mode:
+
+```bash
+stripe listen --forward-to localhost:8787/api/stripe/webhook
+```
+
+Put the CLI’s `whsec_` value in `STRIPE_WEBHOOK_SECRET` and restart the API. Returning from Checkout also confirms the session, so the firm can become active without the CLI. `stripe trigger customer.subscription.updated` is a way to move a test subscription to past due or canceled. Refresh status on the plan screen reads the subscription back from Stripe.
+
+What this build does not do: production checkout, a Stripe Customer Portal, automatic email for failed payments, or proration invoices posted into a client’s books. Seat changes call the Stripe subscription update in test mode. They do not post a journal entry.
 
 ## Plaid sandbox
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { signStripePayload } from "./stripe.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -179,6 +180,10 @@ test("firm seats gate invites, and a firm payment leaves the client trial balanc
     assert.equal(signedIn.body.subscription.planName, "Practice");
     assert.equal(signedIn.body.subscription.seatsUsed, 4);
     assert.equal(signedIn.body.subscription.seatLimit, 5);
+    assert.equal(signedIn.body.subscription.status, "active");
+    assert.equal(signedIn.body.subscription.billingExempt, true);
+    assert.equal(signedIn.body.subscription.allowsWork, true);
+    assert.equal(signedIn.body.subscription.hasStripeSubscription, false);
     assert.equal(signedIn.body.members.length, signedIn.body.subscription.seatsUsed);
     assert.equal(JSON.stringify(signedIn.body).toLowerCase().includes("compliance"), false);
     assert.equal(JSON.stringify(signedIn.body).includes("Professional plan"), false);
@@ -405,10 +410,65 @@ test("recording or changing firm billing leaves every client trial balance ident
     assert.deepEqual(clientBookCounts(dbPath), countsBefore);
     assertSameBooks(before, await everyClient());
 
+    const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_isolation_test";
+    try {
+      const event = {
+        id: "evt_isolation",
+        type: "customer.subscription.updated",
+        data: {
+          object: {
+            id: "sub_isolation",
+            object: "subscription",
+            customer: "cus_isolation",
+            status: "past_due",
+            metadata: { firm_id: signedIn.body.firm.id, plan_id: "practice" },
+            items: { data: [{ id: "si_isolation", quantity: signedIn.body.subscription.seatLimit, price: { id: "price_practice_test" } }] },
+          },
+        },
+      };
+      const raw = JSON.stringify(event);
+      const signed = signStripePayload(raw, process.env.STRIPE_WEBHOOK_SECRET);
+      const hooked = await oliviaJar.fetch(`${base}/api/stripe/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "stripe-signature": signed.header },
+        body: raw,
+      });
+      const hookedBody = await hooked.json();
+      assert.equal(hooked.status, 200);
+      assert.equal(hookedBody.status, "past_due");
+      assert.equal(JSON.stringify(hookedBody).includes("whsec_"), false);
+    } finally {
+      if (previousSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+      else process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+    }
+    assert.deepEqual(clientBookCounts(dbPath), countsBefore);
+    assertSameBooks(before, await everyClient());
+
     const check = new DatabaseSync(dbPath);
     const columns = check.prepare("PRAGMA table_info(firm_billing_events)").all().map((column) => column.name);
     assert.equal(columns.includes("firm_id"), true);
     assert.equal(columns.includes("client_id"), false);
+    const subscriptionColumns = check.prepare("PRAGMA table_info(firm_subscriptions)").all().map((column) => column.name);
+    assert.equal(subscriptionColumns.includes("stripe_customer_id"), true);
+    assert.equal(subscriptionColumns.includes("stripe_subscription_id"), true);
+    assert.equal(subscriptionColumns.includes("client_id"), false);
+    const clientColumns = check.prepare("PRAGMA table_info(clients)").all().map((column) => column.name);
+    assert.equal(clientColumns.includes("stripe_customer_id"), false);
+    assert.equal(clientColumns.includes("stripe_subscription_id"), false);
+    const stripeRow = check.prepare(
+      "SELECT stripe_customer_id, stripe_subscription_id, status, billing_exempt FROM firm_subscriptions WHERE firm_id = ?",
+    ).get(signedIn.body.firm.id);
+    assert.equal(stripeRow.stripe_customer_id, "cus_isolation");
+    assert.equal(stripeRow.stripe_subscription_id, "sub_isolation");
+    assert.equal(stripeRow.status, "past_due");
+    assert.equal(Number(stripeRow.billing_exempt), 1);
+    const tables = check.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
+    for (const table of tables) {
+      if (table.name === "firm_subscriptions") continue;
+      const names = check.prepare(`PRAGMA table_info(${quoteIdent(table.name)})`).all().map((column) => column.name);
+      assert.equal(names.some((name) => name.startsWith("stripe_")), false, table.name);
+    }
     const events = check.prepare("SELECT firm_id, amount_cents FROM firm_billing_events").all();
     assert.equal(events.length, 1);
     assert.equal(events[0].firm_id, signedIn.body.firm.id);
@@ -429,12 +489,17 @@ test("recording or changing firm billing leaves every client trial balance ident
 test("the firm plan stays off client transactions and off the ledger", () => {
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   const subscription = readFileSync(new URL("./subscription.js", import.meta.url), "utf8");
+  const stripe = readFileSync(new URL("./stripe.js", import.meta.url), "utf8");
   const screen = readFileSync(new URL("../src/Subscription.jsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
   assert.doesNotMatch(shell, /Professional plan · 8 seats/);
   assert.match(shell, /SubscriptionSetting/);
   assert.match(screen, /Record firm payment/);
   assert.match(screen, /does not mark a client invoice paid/);
-  assert.doesNotMatch(`${subscription}\n${screen}`, /compliance/i);
-  assert.doesNotMatch(subscription, /postJournalEntry/);
+  assert.match(screen, /Stripe test keys are not configured/);
+  assert.doesNotMatch(`${subscription}\n${stripe}\n${screen}\n${app}`, /compliance/i);
+  assert.doesNotMatch(`${subscription}\n${stripe}`, /postJournalEntry/);
   assert.doesNotMatch(subscription, /invoice_payments/);
+  assert.doesNotMatch(`${subscription}\n${stripe}\n${screen}\n${app}`, /sk_(test|live)_[A-Za-z0-9]{8,}/);
+  assert.doesNotMatch(`${screen}\n${app}`, /STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|whsec_/);
 });
