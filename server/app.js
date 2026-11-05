@@ -1,11 +1,11 @@
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { createClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
+import { createClient, inviteMember, loadSession, openDatabase, openFirmSession, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { archiveClient, listFirm, readClient, updateClient } from "./clients.js";
 import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
 import { listDocumentReviews, storeDocumentReview } from "./document-reviews.js";
-import { listPortal, readPortalDocument, submitPortalFile } from "./portal.js";
+import { listPortal, readPortalDocument, signInPortal, submitPortalFile } from "./portal.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
@@ -19,6 +19,7 @@ import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncP
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
+import { crossSiteError, handleAuthRoutes, noteOnboarding, onboardingPassthrough, readonlyWriteError, withinRateLimit } from "./auth.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -54,12 +55,17 @@ function send(res, status, body, extraHeaders = {}) {
   res.end(payload);
 }
 
+function cookieSuffix() {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `HttpOnly; SameSite=Lax; Path=/${secure}`;
+}
+
 function setSessionCookie(token) {
-  return `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${14 * 24 * 60 * 60}`;
+  return `${COOKIE}=${encodeURIComponent(token)}; ${cookieSuffix()}; Max-Age=${14 * 24 * 60 * 60}`;
 }
 
 function clearSessionCookie() {
-  return `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+  return `${COOKIE}=; ${cookieSuffix()}; Max-Age=0`;
 }
 
 function readBody(req) {
@@ -126,8 +132,30 @@ async function handle(req, res, db, options) {
   }
 
   const session = loadSession(db, readCookie(req, COOKIE));
+  const blocked = crossSiteError(req);
+  if (blocked) {
+    send(res, 403, { error: blocked });
+    return;
+  }
+
+  const handled = await handleAuthRoutes(req, res, db, {
+    url,
+    session,
+    send,
+    readBody,
+    setSessionCookie,
+    options,
+    signInPortalAccount: signInPortal,
+    startFirmSession: openFirmSession,
+    sessionPayload,
+  });
+  if (handled) return;
 
   if (req.method === "POST" && pathname === "/api/session") {
+    if (!withinRateLimit(options, req, "login", 1000, 15 * 60 * 1000)) {
+      send(res, 429, { error: "Too many attempts. Try again later." });
+      return;
+    }
     const body = await readBody(req);
     if (String(body.email || "").trim().toLowerCase() === DEMO_OWNER.email) ensureDemo(db);
     const signedIn = signIn(db, body.email, body.password);
@@ -135,7 +163,22 @@ async function handle(req, res, db, options) {
       send(res, 401, { error: "Email or password is incorrect." });
       return;
     }
+    if (signedIn.error) {
+      send(res, signedIn.status || 403, { error: signedIn.error });
+      return;
+    }
     send(res, 200, signedIn.payload, { "set-cookie": setSessionCookie(signedIn.token) });
+    return;
+  }
+
+  if (session?.onboarding && !onboardingPassthrough(req.method, pathname)) {
+    send(res, 403, { error: "Finish onboarding before opening that page." });
+    return;
+  }
+
+  const readonlyError = readonlyWriteError(db, session, req.method, pathname);
+  if (readonlyError) {
+    send(res, 403, { error: readonlyError });
     return;
   }
 
@@ -610,6 +653,7 @@ async function handle(req, res, db, options) {
       period: url.searchParams.get("period"),
       basis: url.searchParams.get("basis"),
     });
+    if (!result.error) noteOnboarding(db, session, "reports");
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
@@ -621,6 +665,7 @@ async function handle(req, res, db, options) {
       return;
     }
     const result = readLedger(db, session, url.searchParams.get("clientId"));
+    if (!result.error) noteOnboarding(db, session, "chart");
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
@@ -992,7 +1037,9 @@ async function handle(req, res, db, options) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
-    sendResult(res, readWork(db, session));
+    const result = readWork(db, session);
+    if (!result.error) noteOnboarding(db, session, "work_queue");
+    sendResult(res, result);
     return;
   }
 
@@ -1055,7 +1102,7 @@ export function start(dbPath, port = 0, options = {}) {
   const db = openDatabase(dbPath);
   const staticDir = options.staticDir ? path.resolve(options.staticDir) : null;
   const server = createServer((req, res) => {
-    handle(req, res, db, { staticDir }).catch((error) => {
+    handle(req, res, db, { ...options, staticDir }).catch((error) => {
       const status = error.status || 500;
       if (!res.headersSent) send(res, status, { error: status === 500 ? "Something went wrong." : error.message });
     });

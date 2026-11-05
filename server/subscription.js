@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { formatMoney, parseCents } from "../shared/money.js";
+import { canManageFirm } from "./permissions.js";
 
 const PLAN_NAME = "Practice";
 const DEFAULT_SEAT_LIMIT = 5;
@@ -110,7 +111,7 @@ function parseSeatLimit(value) {
 export function updateSeats(db, session, input) {
   ensureSubscription(db);
   const actor = ownerRole(db, session);
-  if (!actor || actor.role !== "owner") return fail(403, "Only an owner can change seats.");
+  if (!actor || !canManageFirm(actor.role)) return fail(403, "Only an owner or administrator can change seats.");
   const seatLimit = parseSeatLimit(input?.seatLimit);
   if (seatLimit === null || seatLimit < 1 || seatLimit > MAX_SEAT_LIMIT) {
     return fail(400, "Enter a whole number of seats.");
@@ -128,7 +129,7 @@ export function updateSeats(db, session, input) {
 export function recordFirmPayment(db, session, input) {
   ensureSubscription(db);
   const actor = ownerRole(db, session);
-  if (!actor || actor.role !== "owner") return fail(403, "Only an owner can record a firm payment.");
+  if (!actor || !canManageFirm(actor.role)) return fail(403, "Only an owner or administrator can record a firm payment.");
   let amountCents = 0;
   try {
     amountCents = parseCents(input?.amount);

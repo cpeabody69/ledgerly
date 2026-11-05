@@ -18,6 +18,16 @@ import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscr
 import { ensurePlaid } from "./plaid.js";
 import { ensurePayables } from "./payables.js";
 import { ensureDemoTables } from "./demo.js";
+import { ROLE_LABEL, EMPLOYEE_ROLES, canManageFirm } from "./permissions.js";
+import {
+  backfillAccess,
+  beginOnboardingSession,
+  checklistFor,
+  ensureAuth,
+  grantMembership,
+  loadOnboardingSession,
+  onboardingPayload,
+} from "./auth.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -28,13 +38,17 @@ CREATE TABLE IF NOT EXISTS firms (
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  firm_id TEXT NOT NULL REFERENCES firms(id),
+  firm_id TEXT REFERENCES firms(id),
   email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('owner', 'manager', 'staff')),
+  role TEXT NOT NULL CHECK (role IN ('owner', 'administrator', 'manager', 'accountant', 'staff', 'bookkeeper', 'readonly')),
   password_hash TEXT NOT NULL,
   invited_by TEXT REFERENCES users(id),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  email_verified_at TEXT,
+  terms_accepted_at TEXT,
+  privacy_accepted_at TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending_verification', 'pending_onboarding', 'active', 'deactivated'))
 );
 
 CREATE TABLE IF NOT EXISTS clients (
@@ -92,12 +106,6 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 `;
 
-const ROLE_LABEL = {
-  owner: "Administrator",
-  manager: "Manager",
-  staff: "Staff",
-};
-
 export function hashPassword(password) {
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(password, salt, 32).toString("hex");
@@ -117,6 +125,7 @@ export function openDatabase(dbPath) {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(SCHEMA);
+  ensureAuth(db);
   seedIfEmpty(db);
   ensureCharts(db);
   ensureBanking(db);
@@ -133,6 +142,7 @@ export function openDatabase(dbPath) {
   ensurePayables(db);
   ensureWork(db);
   ensureDemoTables(db);
+  backfillAccess(db);
   return db;
 }
 
@@ -208,11 +218,13 @@ function memberJson(row) {
 
 export function sessionPayload(db, session) {
   if (session.portal) return portalPayload(db, session);
+  if (session.onboarding) return onboardingPayload(db, session);
   const user = db.prepare("SELECT id, firm_id, email, name, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
   const firm = db.prepare("SELECT id, name, require_receipt, demo FROM firms WHERE id = ?").get(session.firm_id);
   const clients = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id).map(clientJson);
   const selected = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(session.selected_client_id, session.firm_id);
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
+  const checklist = checklistFor(db, firm.id);
   return {
     user: memberJson(user),
     firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1, demo: Number(firm.demo) === 1 },
@@ -220,6 +232,7 @@ export function sessionPayload(db, session) {
     client: selected ? clientJson(selected) : null,
     members,
     subscription: subscriptionSummary(db, session.firm_id),
+    ...(checklist ? { checklist } : {}),
   };
 }
 
@@ -232,7 +245,26 @@ export function loadSession(db, token) {
      WHERE sessions.token = ? AND sessions.expires_at > ?`,
   ).get(token, new Date().toISOString());
   if (row) return row;
-  return loadPortalSession(db, token);
+  const portal = loadPortalSession(db, token);
+  if (portal) return portal;
+  return loadOnboardingSession(db, token);
+}
+
+export function openFirmSession(db, user, clientId) {
+  const now = new Date();
+  const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const session = {
+    id: randomUUID(),
+    token: randomBytes(32).toString("hex"),
+    firm_id: user.firm_id,
+    user_id: user.id,
+    selected_client_id: clientId,
+  };
+  db.prepare(
+    "INSERT INTO sessions (id, token, firm_id, user_id, selected_client_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(session.id, session.token, session.firm_id, session.user_id, session.selected_client_id, now.toISOString(), expires.toISOString());
+  audit(db, session, "session.started");
+  return { token: session.token, payload: sessionPayload(db, session) };
 }
 
 function audit(db, session, action, { clientId = null, entityType = null, entityId = null } = {}) {
@@ -246,28 +278,27 @@ export function signIn(db, email, password) {
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalized);
   if (!user) return signInPortal(db, normalized, password);
   if (!verifyPassword(password || "", user.password_hash)) return null;
+  if (user.status === "pending_verification") return { error: "Confirm your email before signing in.", status: 403 };
+  if (user.status === "deactivated") return { error: "This account is deactivated.", status: 403 };
+  if (user.firm_id) {
+    const membership = db.prepare("SELECT status FROM memberships WHERE user_id = ? AND firm_id = ?").get(user.id, user.firm_id);
+    if (membership && membership.status !== "active") return { error: "This account is deactivated.", status: 403 };
+  }
+  if (!user.firm_id || user.status === "pending_onboarding") return beginOnboardingSession(db, user);
   const client = db.prepare("SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1").get(user.firm_id);
-  if (!client) return null;
-  const now = new Date();
-  const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const session = {
-    id: randomUUID(),
-    token: randomBytes(32).toString("hex"),
-    firm_id: user.firm_id,
-    user_id: user.id,
-    selected_client_id: client.id,
-  };
-  db.prepare(
-    "INSERT INTO sessions (id, token, firm_id, user_id, selected_client_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(session.id, session.token, session.firm_id, session.user_id, session.selected_client_id, now.toISOString(), expires.toISOString());
-  audit(db, session, "session.started");
-  return { token: session.token, payload: sessionPayload(db, session) };
+  if (!client) return beginOnboardingSession(db, user);
+  return openFirmSession(db, user, client.id);
 }
 
 export function signOut(db, session) {
   if (!session) return;
   if (session.portal) {
     signOutPortal(db, session);
+    return;
+  }
+  if (session.onboarding) {
+    if (session.firm_id) audit(db, session, "session.ended");
+    db.prepare("DELETE FROM onboarding_sessions WHERE id = ?").run(session.id);
     return;
   }
   audit(db, session, "session.ended");
@@ -296,6 +327,7 @@ function initialsFor(name) {
 }
 
 export function createClient(db, session, input) {
+  if (!session?.firm_id) return { status: 400, error: "Create the firm profile first." };
   const body = input || {};
   const name = String(body.name || "").trim();
   if (!name || name.length > 80) return { status: 400, error: "Enter a client name." };
@@ -322,15 +354,15 @@ export function createClient(db, session, input) {
 
 export function inviteMember(db, session, input) {
   const actor = db.prepare("SELECT role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
-  if (!actor || actor.role !== "owner") {
-    return { status: 403, error: "Only an owner can invite someone into the firm." };
+  if (!actor || !canManageFirm(actor.role)) {
+    return { status: 403, error: "Only an owner or administrator can invite someone into the firm." };
   }
   const name = String(input.name || "").trim();
   const email = String(input.email || "").trim().toLowerCase();
   const role = String(input.role || "").trim();
   const password = String(input.password || "");
   if (!name || !email || !email.includes("@")) return { status: 400, error: "Enter a name and an email." };
-  if (role !== "staff" && role !== "manager") return { status: 400, error: "Choose a staff or manager role." };
+  if (!EMPLOYEE_ROLES.includes(role)) return { status: 400, error: "Choose an administrator, manager, accountant, staff, bookkeeper, or read-only role." };
   if (password.length < 8) return { status: 400, error: "Use a password of at least 8 characters." };
   const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
   if (existing) return { status: 409, error: "That email already has an account." };
@@ -341,8 +373,11 @@ export function inviteMember(db, session, input) {
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO users (id, firm_id, email, name, role, password_hash, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, session.firm_id, email, name, role, hashPassword(password), session.user_id, now);
+    `INSERT INTO users (
+      id, firm_id, email, name, role, password_hash, invited_by, created_at, email_verified_at, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+  ).run(id, session.firm_id, email, name, role, hashPassword(password), session.user_id, now, now);
+  grantMembership(db, id, session.firm_id, role);
   ensureTime(db);
   audit(db, session, "member.invited", { entityType: "user", entityId: id });
   return { status: 201, payload: sessionPayload(db, session) };

@@ -22,16 +22,26 @@ Each person has their own email and password. Signing in identifies that person 
 
 | Firm | Email | Password | Role |
 | --- | --- | --- | --- |
-| Northstar | olivia@northstarcreative.co | ledgerly-olivia | Owner (shown as Administrator) |
+| Northstar | olivia@northstarcreative.co | ledgerly-olivia | Organization Owner |
 | Northstar | morgan@northstarcreative.co | ledgerly-morgan | Manager |
 | Northstar | sam@northstarcreative.co | ledgerly-sam | Staff |
 | Northstar | riley@northstarcreative.co | ledgerly-riley | Staff |
-| Harbor Street Advisors | jordan@harborstreet.example | ledgerly-jordan | Owner |
-| Ledgerly Demo (fictional) | avery@ledgerly-demo.example | ledgerly-demo | Owner |
-| Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-casey | Client |
-| Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-rowan | Client |
+| Harbor Street Advisors | jordan@harborstreet.example | ledgerly-jordan | Organization Owner |
+| Ledgerly Demo (fictional) | avery@ledgerly-demo.example | ledgerly-demo | Organization Owner |
+| Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-casey | Business Client |
+| Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-rowan | Business Client |
 
-An owner invites another staff or manager user from Settings. That person signs in with the email and password entered on the invite. Staff and managers cannot invite. Any signed-in member of the firm can post a journal entry to the open client.
+An organization owner or administrator invites an employee from Settings and sets that person's password there. Nothing is emailed for that invite. The roles are organization owner, administrator, manager, accountant, staff, bookkeeper, and read-only employee. A read-only employee can open records and cannot change them. Staff and bookkeepers cannot invite. Clients do not register on the public form.
+
+## Firm registration
+
+The sign-in page links to Create a firm account. The form asks for full name, work email, password, password confirmation, and acceptance of the Terms and the Privacy notice. The account stays unverified until the verification link is opened. After that, the owner enters the firm name, business type, country, time zone, accounting method, and fiscal year. That creates the organization and makes the creator the organization owner.
+
+The checklist that follows can add a client, send a portal invitation, upload a sample document, and mark or skip the chart, sandbox bank, Work Queue, and reports. Skipped steps stay on the checklist until they are resumed. Opening the workspace requires at least one client, because the books are per client.
+
+Email delivery is not configured. No mail provider is connected. Outside production, the API stores the verification, reset, and invitation links in a local development mailbox. Open it from the screen after registering, or request `GET /api/dev/mailbox?email=` on localhost. Set `LEDGERLY_DEV_MAILBOX=0` to hide that route. `NODE_ENV=production` hides it unless `LEDGERLY_DEV_MAILBOX=1`. Do not treat the mailbox as production email.
+
+A client joins only when an owner, administrator, manager, or accountant creates the client and sends an invitation. The link expires in seven days, works once, and can be revoked. Accepting it creates the portal sign-in or signs in an existing portal password for that same client, then opens that client's portal. Deactivating portal access ends the client's sessions.
 
 ## Post a sample entry as Olivia
 

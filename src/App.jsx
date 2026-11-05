@@ -1,9 +1,28 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Portal } from "./Portal.jsx";
 import { Te } from "./Shell.jsx";
+import { ChecklistBanner, OnboardingScreen, PublicAuth } from "./AuthScreens.jsx";
+
+const PUBLIC_PATHS = new Set(["/register", "/forgot-password", "/reset-password", "/verify-email", "/invitation"]);
+
+function usePath() {
+  const [path, setPath] = useState(() => window.location.pathname);
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const go = useCallback((next) => {
+    const url = next.startsWith("/") ? next : `/${next}`;
+    window.history.pushState({}, "", url);
+    setPath(window.location.pathname);
+  }, []);
+  return [path, go];
+}
 
 export function App() {
   const [session, setSession] = useState(undefined);
+  const [path, go] = usePath();
 
   useEffect(() => {
     let cancel = false;
@@ -25,87 +44,17 @@ export function App() {
   }, []);
 
   if (session === undefined) return <div className="sign-in" />;
-  if (!session) return <SignIn onSession={setSession} />;
-  if (session.portal) return <Portal session={session} onSession={setSession} />;
-  return <Te session={session} onSession={setSession} />;
-}
-
-function SignIn({ onSession }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
-
-  async function submit(event) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const nextEmail = String(data.get("email") || email);
-    const nextPassword = String(data.get("password") || password);
-    setPending(true);
-    setError("");
-    try {
-      const response = await fetch("/api/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: nextEmail, password: nextPassword }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setError(body.error || "Email or password is incorrect.");
-        return;
-      }
-      onSession(body);
-    } catch {
-      setError("Could not reach Ledgerly.");
-    } finally {
-      setPending(false);
-    }
+  if (PUBLIC_PATHS.has(path) || !session) {
+    return <PublicAuth path={path} go={go} session={session} onSession={setSession} />;
   }
-
+  if (session.onboarding || path === "/onboarding") {
+    return <OnboardingScreen session={session} onSession={setSession} go={go} />;
+  }
+  if (session.portal) return <Portal session={session} onSession={setSession} />;
   return (
-    <div className="sign-in">
-      <form onSubmit={submit}>
-        <div className="sign-in-brand">
-          <span className="brand-mark">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span>Ledgerly</span>
-        </div>
-        <h1>Sign in</h1>
-        <p className="lede">Sign in to Ledgerly.</p>
-        <label className="field">
-          <span>Email</span>
-          <input
-            name="email"
-            type="email"
-            autoComplete="username"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </label>
-        <label className="field">
-          <span>Password</span>
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-        </label>
-        {error ? (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <button className="button primary" type="submit" disabled={pending}>
-          {pending ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-    </div>
+    <>
+      <ChecklistBanner session={session} go={go} />
+      <Te session={session} onSession={setSession} />
+    </>
   );
 }

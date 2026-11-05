@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { formatMoney, parseCents } from "../shared/money.js";
 import { postJournalEntry } from "./ledger.js";
+import { canManageFirm } from "./permissions.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS expenses (
@@ -243,7 +244,7 @@ export function createExpense(db, session, input) {
 export function updateReceiptSetting(db, session, input) {
   ensureExpenses(db);
   const user = db.prepare("SELECT role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
-  if (!user || user.role !== "owner") return fail(403, "Only an owner can change this setting.");
+  if (!user || !canManageFirm(user.role)) return fail(403, "Only an owner or administrator can change this setting.");
   if (typeof input?.requireReceipt !== "boolean") return fail(400, "Choose whether a receipt is required.");
   db.prepare("UPDATE firms SET require_receipt = ? WHERE id = ?").run(input.requireReceipt ? 1 : 0, session.firm_id);
   db.prepare(

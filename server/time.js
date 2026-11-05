@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { addCents, formatMoney, parseCents } from "../shared/money.js";
 import { createInvoice, discardInvoice } from "./invoices.js";
+import { canSeeFirmTime } from "./permissions.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS staff (
@@ -44,7 +45,15 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-const TITLES = { owner: "Owner", manager: "Manager", staff: "Staff" };
+const TITLES = {
+  owner: "Organization Owner",
+  administrator: "Administrator",
+  manager: "Manager",
+  accountant: "Accountant",
+  staff: "Staff",
+  bookkeeper: "Bookkeeper",
+  readonly: "Read-only employee",
+};
 
 function fail(status, error) {
   return { status, error };
@@ -62,7 +71,7 @@ export function ensureTime(db) {
     `SELECT users.id, users.firm_id, users.role, users.created_at
      FROM users
      LEFT JOIN staff ON staff.user_id = users.id
-     WHERE staff.id IS NULL`,
+     WHERE staff.id IS NULL AND users.firm_id IS NOT NULL`,
   ).all();
   const insert = db.prepare(
     "INSERT INTO staff (id, firm_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -117,7 +126,7 @@ function viewer(db, session) {
     "SELECT id, name, role FROM users WHERE id = ? AND firm_id = ?",
   ).get(session.user_id, session.firm_id);
   if (!user) return null;
-  return { ...user, firmWide: user.role === "owner" || user.role === "manager" };
+  return { ...user, firmWide: canSeeFirmTime(user.role) };
 }
 
 function clientInFirm(db, session, clientId) {

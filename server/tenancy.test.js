@@ -60,7 +60,7 @@ test("two firms stay separate, sessions survive refresh, and staff cannot invite
     assert.equal(signedIn.response.status, 200);
     assert.equal(signedIn.body.firm.name, "Northstar");
     assert.equal(signedIn.body.user.role, "owner");
-    assert.equal(signedIn.body.user.roleLabel, "Administrator");
+    assert.equal(signedIn.body.user.roleLabel, "Organization Owner");
     assert.equal(signedIn.body.user.name, "Olivia Martin");
     assert.equal(signedIn.body.clients.length, 4);
     assert.equal(signedIn.body.client.name, "Northstar Creative");

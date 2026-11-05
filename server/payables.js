@@ -135,7 +135,7 @@ function actorRole(db, session) {
 }
 
 function canApproveRole(role) {
-  return role === "owner" || role === "manager";
+  return role === "owner" || role === "administrator" || role === "manager" || role === "accountant";
 }
 
 function requireApprover(db, session, action) {
