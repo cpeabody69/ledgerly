@@ -199,7 +199,7 @@ async function handle(req, res, db, options) {
     return;
   }
 
-  if (req.method === "GET" && pathname === "/api/quickbooks/callback") {
+  if (req.method === "GET" && pathname === "/api/quickbooks/callback/ledgerly") {
     const result = await handleQuickBooksCallback(db, url);
     res.writeHead(302, {
       location: result.redirect,

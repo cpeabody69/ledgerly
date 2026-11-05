@@ -165,7 +165,7 @@ Settings → Integrations shows QuickBooks Online for the open client. Connect Q
 
 Disconnect clears the stored tokens and asks Intuit to revoke the refresh token. Sync calls the sandbox query API for customers, vendors, accounts, purchases (transactions), invoices, and payments. Ids Intuit returns are stored on this firm. A repeated id is rejected. Nothing from QuickBooks is posted into the client’s ledger, invoices, or bank activity. Webhooks require `QUICKBOOKS_WEBHOOK_VERIFIER`. The handler checks the `intuit-signature` HMAC and rejects a request that does not match. A valid webhook is recorded. It does not import records by itself.
 
-Copy the names from `.env.example`. For `npm run dev`, set `QUICKBOOKS_REDIRECT_URI` to `http://127.0.0.1:5173/api/quickbooks/callback` and register that same URI on the Intuit sandbox app. Restart the API after saving `.env`. This build does not include Intuit app credentials, and it cannot finish a live sandbox connect until those exist.
+Copy the names from `.env.example`. For `npm run dev`, set `QUICKBOOKS_REDIRECT_URI` to `http://127.0.0.1:5173/api/quickbooks/callback/ledgerly` and register that same URI on the Intuit sandbox app. Restart the API after saving `.env`. This build does not include Intuit app credentials, and it cannot finish a live sandbox connect until those exist.
 
 ## Fictional demo
 
