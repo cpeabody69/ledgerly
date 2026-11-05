@@ -162,6 +162,102 @@ function ClientForm({ client, members, onClose, onCreated }) {
   );
 }
 
+function ClientTasks({ clientId }) {
+  const [board, setBoard] = useState(null);
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState("");
+  const [dueOn, setDueOn] = useState("");
+  const [pending, setPending] = useState(false);
+
+  function load() {
+    return fetch(`/api/clients/${encodeURIComponent(clientId)}/tasks`).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Could not load tasks.");
+      setBoard(body);
+      setError("");
+      return body;
+    }).catch((reason) => {
+      setError(reason.message || "Could not load tasks.");
+    });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/clients/${encodeURIComponent(clientId)}/tasks`).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (cancelled) return;
+      if (!response.ok) {
+        setError(body.error || "Could not load tasks.");
+        return;
+      }
+      setBoard(body);
+      setDueOn(body.today || "");
+    }).catch(() => {
+      if (!cancelled) setError("Could not load tasks.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  async function createTask(event) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    const response = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, clientId, dueOn }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setPending(false);
+    if (!response.ok || !body.task) {
+      setError(body.error || "The task was not saved.");
+      return;
+    }
+    setTitle("");
+    setCreating(false);
+    load();
+  }
+
+  const groups = [
+    ["open", "Open"],
+    ["overdue", "Overdue"],
+    ["waiting", "Waiting"],
+    ["completed", "Completed"],
+  ];
+
+  return (
+    <div className="drawer-section">
+      <div className="client-task-heading">
+        <h3>Tasks</h3>
+        <button className="text-button" type="button" onClick={() => setCreating((open) => !open)}>{creating ? "Cancel" : "New task"}</button>
+      </div>
+      {creating ? (
+        <form className="client-task-form" onSubmit={createTask}>
+          <label className="field"><span>Title</span><input aria-label="Task title" value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
+          <label className="field"><span>Due date</span><input aria-label="Task due date" type="date" value={dueOn} onChange={(event) => setDueOn(event.target.value)} /></label>
+          <Button type="submit" disabled={pending || !title.trim()}>{pending ? "Saving…" : "Save task"}</Button>
+        </form>
+      ) : null}
+      {groups.map(([key, label]) => (
+        <div className="client-task-group" key={key}>
+          <h4>{label}</h4>
+          {board?.[key]?.length ? (
+            <ul className="plain-list">
+              {board[key].map((task) => (
+                <li key={task.id}><b>{task.title}</b> · {task.statusLabel}{task.dueOnLabel ? ` · ${task.dueOnLabel}` : ""}{task.assigneeName ? ` · ${task.assigneeName}` : ""}</li>
+              ))}
+            </ul>
+          ) : <p className="books-note">{board ? "None" : "Loading…"}</p>}
+        </div>
+      ))}
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+    </div>
+  );
+}
+
 function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
   const [client, setClient] = useState(null);
   const [error, setError] = useState("");
@@ -227,6 +323,7 @@ function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
                 <div><dt>Notes</dt><dd>{client.notes || "—"}</dd></div>
               </dl>
             </div>
+            <ClientTasks clientId={clientId} />
             <div className="drawer-section">
               <h3>Outstanding tasks</h3>
               {client.tasks?.length ? (

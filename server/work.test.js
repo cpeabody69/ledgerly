@@ -233,3 +233,96 @@ test("work tasks persist, match the queue counts, and stay inside the firm", asy
     assert.equal(portalText.includes(note), false);
   });
 });
+
+test("a status change writes history, the client list stays on that client, and another firm cannot read the comment", async () => {
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    assert.equal(signedIn.client.name, "Northstar Creative");
+    const haven = signedIn.clients.find((client) => client.name === "Haven Coffee Roasters");
+    const created = await sendJson(olivia, base, "POST", "/api/tasks", {
+      title: "Northstar follow-up",
+      clientId: signedIn.client.id,
+      dueOn: "2026-11-20",
+    });
+    assert.equal(created.response.status, 201);
+    const taskId = created.body.task.id;
+    const createdEvent = created.body.task.history.find((event) => event.action === "create");
+    assert.equal(createdEvent.actorId, signedIn.user.id);
+    assert.ok(createdEvent.createdAt);
+
+    await sendJson(olivia, base, "POST", "/api/tasks", {
+      title: "Haven follow-up",
+      clientId: haven.id,
+      dueOn: "2026-11-20",
+    });
+
+    const changed = await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { status: "waiting_on_client" });
+    assert.equal(changed.response.status, 200);
+    const statusEvent = changed.body.task.history.find((event) => event.action === "status");
+    assert.equal(statusEvent.detail, "Waiting on client");
+    assert.equal(statusEvent.actorId, signedIn.user.id);
+    assert.equal(statusEvent.actorName, "Olivia Martin");
+    assert.ok(statusEvent.createdAt);
+
+    const moved = await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, {
+      assigneeId: signedIn.user.id,
+      priority: "high",
+      dueOn: "2026-12-01",
+    });
+    assert.equal(moved.body.task.history.some((event) => event.action === "assign" && event.actorId === signedIn.user.id), true);
+    assert.equal(moved.body.task.history.some((event) => event.action === "priority" && event.detail === "High"), true);
+    assert.equal(moved.body.task.history.some((event) => event.action === "due_date" && event.actorId === signedIn.user.id && event.createdAt), true);
+
+    const done = await sendJson(olivia, base, "POST", `/api/tasks/${taskId}/complete`);
+    assert.equal(done.body.task.history.some((event) => event.action === "complete" && event.actorId === signedIn.user.id), true);
+    const reopened = await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { status: "open" });
+    const reopenEvent = reopened.body.task.history.find((event) => event.action === "reopen");
+    assert.equal(reopenEvent.actorId, signedIn.user.id);
+    assert.ok(reopenEvent.createdAt);
+    await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { status: "waiting_on_client" });
+
+    const comment = "Harbor must not see this comment";
+    const noted = await sendJson(olivia, base, "POST", `/api/tasks/${taskId}/comments`, { body: comment });
+    assert.equal(noted.response.status, 200);
+    const commentEvent = noted.body.task.history.find((event) => event.action === "comment");
+    assert.equal(commentEvent.detail, comment);
+    assert.equal(commentEvent.actorId, signedIn.user.id);
+    assert.ok(commentEvent.createdAt);
+    assert.equal(noted.body.task.notes.includes(comment), false);
+
+    const names = (section) => [...section.open, ...section.overdue, ...section.waiting, ...section.completed].map((task) => task.title);
+    const northstar = await (await olivia.fetch(`${base}/api/clients/${signedIn.client.id}/tasks`)).json();
+    assert.equal(northstar.clientId, signedIn.client.id);
+    assert.equal(names(northstar).includes("Northstar follow-up"), true);
+    assert.equal(names(northstar).includes("Haven follow-up"), false);
+    assert.equal(northstar.waiting.some((task) => task.title === "Northstar follow-up"), true);
+    assert.equal(JSON.stringify(northstar).includes(comment), false);
+
+    const havenBoard = await (await olivia.fetch(`${base}/api/clients/${haven.id}/tasks`)).json();
+    assert.equal(names(havenBoard).includes("Haven follow-up"), true);
+    assert.equal(names(havenBoard).includes("Northstar follow-up"), false);
+
+    const jordan = cookieJar();
+    await signIn(jordan, base, firms.harbor.owner);
+    const hidden = await jordan.fetch(`${base}/api/tasks/${taskId}`);
+    const hiddenText = await hidden.text();
+    assert.equal(hidden.status, 404);
+    assert.equal(hiddenText.includes(comment), false);
+    const hiddenClient = await jordan.fetch(`${base}/api/clients/${signedIn.client.id}/tasks`);
+    const hiddenClientText = await hiddenClient.text();
+    assert.equal(hiddenClient.status, 404);
+    assert.equal(hiddenClientText.includes(comment), false);
+
+    const casey = cookieJar();
+    await signIn(casey, base, firms.northstar.portal);
+    const portalTask = await casey.fetch(`${base}/api/tasks/${taskId}`);
+    const portalTaskText = await portalTask.text();
+    assert.equal(portalTask.status, 404);
+    assert.equal(portalTaskText.includes(comment), false);
+    const portal = await casey.fetch(`${base}/api/portal`);
+    const portalText = await portal.text();
+    assert.equal(portalText.includes(comment), false);
+    assert.equal(portalText.includes("Internal only"), false);
+  });
+});
