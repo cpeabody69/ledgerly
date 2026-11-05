@@ -18,6 +18,7 @@ import { readSubscription, recordFirmPayment, updateSeats } from "./subscription
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
+import { readDemo, resetDemo, runDemoChecks } from "./demo.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -903,6 +904,47 @@ async function handle(req, res, db, options) {
     const result = disconnectPlaid(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/demo") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    try {
+      sendResult(res, readDemo(db));
+    } catch (error) {
+      send(res, 500, { error: error.message || "The demo could not be prepared." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/demo/reset") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    try {
+      const result = resetDemo(db, session);
+      const headers = result.token ? { "set-cookie": setSessionCookie(result.token) } : {};
+      send(res, result.status, result.payload, headers);
+    } catch (error) {
+      send(res, 500, { error: error.message || "The demo could not be restored." });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/demo/checks") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    try {
+      sendResult(res, runDemoChecks(db));
+    } catch (error) {
+      send(res, 500, { error: error.message || "The checks could not be stored." });
+    }
     return;
   }
 

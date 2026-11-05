@@ -116,6 +116,14 @@ Sandbox test, after the API has restarted with those three values:
 6. Open Transactions. The imported lines are For review, with a suggested category and no journal. Approve one, or change the account and save. That is the post. The others stay off the trial balance.
 7. Choose Sync transactions. The same lines are not added again.
 
+## Fictional demo
+
+Demo in the sidebar opens three fictional businesses with separate books: a service studio, a retail shop, and a repair contractor. Sign in as `avery@ledgerly-demo.example` / `ledgerly-demo`, or open Demo from any firm. The page shows the scenario count and the last stored check result.
+
+Reset demo data restores that set. It does not change Northstar, Harbor Street Advisors, or any other firm that is not the demo. Run accounting checks runs the book checks and stores pass or fail. A passing result is not a certification or an audit opinion. Nothing on the demo is a live bank, and the clients do not store tax identifiers.
+
+The same actions are `POST /api/demo/reset` and `POST /api/demo/checks` while signed in. `GET /api/demo` reads the page.
+
 ## Still the published picture
 
 These screens still look like the published draft and do not read the ledger:
