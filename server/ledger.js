@@ -138,13 +138,25 @@ function fail(status, error) {
   return { status, error };
 }
 
+function booksPolicy(db, firmId) {
+  let firm = null;
+  try {
+    firm = db.prepare("SELECT accounting_method, fiscal_year_start FROM firms WHERE id = ?").get(firmId);
+  } catch {
+    firm = null;
+  }
+  const basis = firm?.accounting_method === "cash" || firm?.accounting_method === "accrual" ? firm.accounting_method : "accrual";
+  const month = Number(firm?.fiscal_year_start);
+  return { basis, month: month >= 1 && month <= 12 ? month : 1 };
+}
+
 export function ensureCharts(db) {
   db.exec(LEDGER_SCHEMA);
   const clients = db.prepare("SELECT id, firm_id FROM clients").all();
   const existing = new Set(db.prepare("SELECT client_id FROM client_books").all().map((row) => row.client_id));
   const now = new Date().toISOString();
   const insertBooks = db.prepare(
-    "INSERT INTO client_books (client_id, firm_id, accounting_basis, fiscal_year_start_month, chart_template, created_at) VALUES (?, ?, 'accrual', 1, ?, ?)",
+    "INSERT INTO client_books (client_id, firm_id, accounting_basis, fiscal_year_start_month, chart_template, created_at) VALUES (?, ?, ?, ?, ?, ?)",
   );
   const insertAccount = db.prepare(
     `INSERT INTO accounts (
@@ -155,7 +167,8 @@ export function ensureCharts(db) {
     if (existing.has(client.id)) continue;
     db.exec("BEGIN");
     try {
-      insertBooks.run(client.id, client.firm_id, CHART_TEMPLATE, now);
+      const policy = booksPolicy(db, client.firm_id);
+      insertBooks.run(client.id, client.firm_id, policy.basis, policy.month, CHART_TEMPLATE, now);
       CHART.forEach((account, position) => {
         insertAccount.run(
           randomUUID(),

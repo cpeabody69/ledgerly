@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { formatMoney, parseCents } from "../shared/money.js";
 import { postJournalEntry } from "./ledger.js";
+import { canManageFirm } from "./permissions.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS expenses (
@@ -243,13 +244,13 @@ export function createExpense(db, session, input) {
 export function updateReceiptSetting(db, session, input) {
   ensureExpenses(db);
   const user = db.prepare("SELECT role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
-  if (!user || user.role !== "owner") return fail(403, "Only an owner can change this setting.");
+  if (!user || !canManageFirm(user.role)) return fail(403, "Only an owner or administrator can change this setting.");
   if (typeof input?.requireReceipt !== "boolean") return fail(400, "Choose whether a receipt is required.");
   db.prepare("UPDATE firms SET require_receipt = ? WHERE id = ?").run(input.requireReceipt ? 1 : 0, session.firm_id);
   db.prepare(
     "INSERT INTO audit_events (id, firm_id, actor_user_id, action, client_id, entity_type, entity_id, created_at) VALUES (?, ?, ?, 'firm.receipt_setting', NULL, 'firm', ?, ?)",
   ).run(randomUUID(), session.firm_id, session.user_id, session.firm_id, new Date().toISOString());
-  const firm = db.prepare("SELECT id, name, require_receipt FROM firms WHERE id = ?").get(session.firm_id);
+  const firm = db.prepare("SELECT id, name, require_receipt, demo FROM firms WHERE id = ?").get(session.firm_id);
   return {
     status: 200,
     payload: {
@@ -257,6 +258,7 @@ export function updateReceiptSetting(db, session, input) {
         id: firm.id,
         name: firm.name,
         requireReceipt: firm.require_receipt === 1,
+        demo: Number(firm.demo) === 1,
       },
     },
   };
