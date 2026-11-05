@@ -18,7 +18,7 @@ import { readSubscription, recordFirmPayment, updateSeats } from "./subscription
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
-import { readDemo, resetDemo, runDemoChecks } from "./demo.js";
+import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -129,6 +129,7 @@ async function handle(req, res, db, options) {
 
   if (req.method === "POST" && pathname === "/api/session") {
     const body = await readBody(req);
+    if (String(body.email || "").trim().toLowerCase() === DEMO_OWNER.email) ensureDemo(db);
     const signedIn = signIn(db, body.email, body.password);
     if (!signedIn) {
       send(res, 401, { error: "Email or password is incorrect." });
@@ -913,7 +914,7 @@ async function handle(req, res, db, options) {
       return;
     }
     try {
-      sendResult(res, readDemo(db));
+      sendResult(res, readDemo(db, session));
     } catch (error) {
       send(res, 500, { error: error.message || "The demo could not be prepared." });
     }
@@ -927,6 +928,10 @@ async function handle(req, res, db, options) {
     }
     try {
       const result = resetDemo(db, session);
+      if (result.error) {
+        send(res, result.status, { error: result.error });
+        return;
+      }
       const headers = result.token ? { "set-cookie": setSessionCookie(result.token) } : {};
       send(res, result.status, result.payload, headers);
     } catch (error) {
@@ -941,7 +946,7 @@ async function handle(req, res, db, options) {
       return;
     }
     try {
-      sendResult(res, runDemoChecks(db));
+      sendResult(res, runDemoChecks(db, session));
     } catch (error) {
       send(res, 500, { error: error.message || "The checks could not be stored." });
     }
