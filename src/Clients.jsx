@@ -498,9 +498,8 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
     <div className="page client-page">
       <div className="page-header">
         <div>
-          <div className="eyebrow">CPA PORTAL</div>
-          <h1>Client workspace</h1>
-          <p>Monitor every client’s books, requests, and review status in one place.</p>
+          <h1>Clients</h1>
+          <p>Each client’s assignee, status, open tasks, and books updated date.</p>
         </div>
         <div className="header-actions">
           <Button variant="secondary" icon="upload" onClick={() => setRequesting(true)}>Request documents</Button>
@@ -512,7 +511,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
         <div>
           <span className="round-icon inverse"><Icon name="building" /></span>
           <div>
-            <h2>Your firm at a glance</h2>
+            <h2>{firm?.firm?.name || "This firm"}</h2>
             <p>{firm ? glance(counts.needingAttention) : "Loading this firm’s clients…"}</p>
           </div>
         </div>

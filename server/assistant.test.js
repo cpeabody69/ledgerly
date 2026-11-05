@@ -244,7 +244,7 @@ test("the assistant keeps post, approve, and file out of its tools", () => {
   const server = readFileSync(new URL("./assistant.js", import.meta.url), "utf8");
   const screen = readFileSync(new URL("../src/Assistant.jsx", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
-  assert.match(shell, /Explore Ledger AI/);
+  assert.match(shell, /Ask about these books/);
   assert.doesNotMatch(shell, /coming soon/);
   assert.match(screen, /AI-generated/);
   assert.match(screen, /Use this draft/);

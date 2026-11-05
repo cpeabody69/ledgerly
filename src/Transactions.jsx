@@ -70,7 +70,7 @@ export function RecentTransactions({ clientId }) {
   const rows = recentActivity(payload, clientId);
   return (
     <div className="transaction-list">
-      {payload && !rows.length ? <p className="books-note">No transactions yet.</p> : null}
+      {payload && !rows.length ? <p className="books-note">No bank lines are stored for this client.</p> : null}
       {rows.map((row) => (
         <div className="transaction-row" key={row.id}>
           <span className={`transaction-icon ${row.type}`}><Icon name={row.type === "income" ? "down" : "up"} /></span>
@@ -188,7 +188,7 @@ export function Transactions({ clientId, initialTab = "all", initialPeriod = PER
       <div className="page-header">
         <div>
           <h1>Transactions</h1>
-          <p>Review, categorize, and reconcile all your business activity.</p>
+          <p>Statement lines for this client. A line posts only after you categorize it.</p>
         </div>
         <div className="header-actions">
           <Button variant="secondary" icon="upload" disabled={!bankAccounts.length} onClick={() => setImportOpen(true)}>Import</Button>
@@ -267,7 +267,7 @@ export function Transactions({ clientId, initialTab = "all", initialPeriod = PER
           </div>
         ) : (
           <div className="empty-state">
-            <b>{rows.length ? "No transactions in this period" : "No transactions yet"}</b>
+            <b>{rows.length ? "No lines in this period" : "No bank lines for this client"}</b>
             <p>{period === "Apr 1 – Apr 30" && !rows.some((row) => matchesPeriod(row.postedOn, period, today)) ? "April is empty because this client has no April activity." : "Import a CSV of synthetic activity, or add a line."}</p>
           </div>
         )}
