@@ -17,6 +17,7 @@ import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import { readSubscription, recordFirmPayment, updateSeats } from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
+import { completeWorkTask, createWorkTask, readWork, updateWorkTask } from "./work.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -907,6 +908,44 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/tasks") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, readWork(db, session));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/tasks") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, createWorkTask(db, session, await readBody(req)));
+    return;
+  }
+
+  const workComplete = pathname.match(/^\/api\/tasks\/([^/]+)\/complete$/);
+  if (workComplete && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, completeWorkTask(db, session, decodeURIComponent(workComplete[1])));
+    return;
+  }
+
+  const workTask = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+  if (workTask && req.method === "PATCH") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, updateWorkTask(db, session, decodeURIComponent(workTask[1]), await readBody(req)));
     return;
   }
 

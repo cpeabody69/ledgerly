@@ -309,7 +309,7 @@ function RequestDocuments({ clients, selectedClientId, onClose, onCreated }) {
   );
 }
 
-export function Clients({ selectedClientId, onOpenClient, onReview, onSession }) {
+export function Clients({ selectedClientId, onOpenClient, onReview, onSession, focusRequestId = "" }) {
   const [firm, setFirm] = useState(null);
   const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
@@ -320,6 +320,11 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
   const [editing, setEditing] = useState(null);
   const [profileId, setProfileId] = useState(null);
   const [requesting, setRequesting] = useState(false);
+
+  useEffect(() => {
+    if (!focusRequestId) return;
+    document.getElementById(`request-${focusRequestId}`)?.scrollIntoView({ block: "center" });
+  }, [focusRequestId, firm]);
 
   async function load(next = {}) {
     const params = new URLSearchParams();
@@ -488,7 +493,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession })
             <div className="card-header"><div><h2>Document requests</h2><p>Outstanding requests stay open until a file is stored.</p></div></div>
             <h3 className="request-heading">Outstanding</h3>
             {(firm?.requestHistory?.outstanding || []).length ? firm.requestHistory.outstanding.map((request) => (
-              <div className="request-row" key={request.id}>
+              <div className={`request-row ${focusRequestId === request.id ? "request-focus" : ""}`} id={`request-${request.id}`} key={request.id}>
                 <span className="file-icon"><Icon name="file" /></span>
                 <span><b>{request.title}</b><small>{[request.clientName, request.dueOnLabel || "No due date"].join(" · ")}</small></span>
                 <span className="badge amber">{request.statusLabel}</span>

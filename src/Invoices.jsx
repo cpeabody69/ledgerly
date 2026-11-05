@@ -234,7 +234,7 @@ export function OutstandingInvoices({ clientId, onOpen }) {
   );
 }
 
-export function Invoices({ clientId, onCreate }) {
+export function Invoices({ clientId, onCreate, initialInvoiceId = null }) {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -242,7 +242,7 @@ export function Invoices({ clientId, onCreate }) {
   const [status, setStatus] = useState("All statuses");
   const [period, setPeriod] = useState("Custom range");
   const [page, setPage] = useState(1);
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenId] = useState(initialInvoiceId);
 
   async function load() {
     const response = await fetch("/api/invoices");
@@ -257,14 +257,14 @@ export function Invoices({ clientId, onCreate }) {
     setPayload(null);
     setError("");
     setPage(1);
-    setOpenId(null);
+    setOpenId(initialInvoiceId);
     load().catch((loadError) => {
       if (!cancelled) setError(loadError.message);
     });
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [clientId, initialInvoiceId]);
 
   const invoices = payload?.invoices || [];
   const metrics = payload?.metrics;
