@@ -22,6 +22,7 @@ Open http://127.0.0.1:5173. The API listens on http://127.0.0.1:8787. `npm start
 | --- | --- | --- | --- |
 | Northstar | olivia@northstarcreative.co | ledgerly-northstar | Owner (shown as Administrator) |
 | Harbor Street Advisors | jordan@harborstreet.example | ledgerly-harbor | Owner |
+| Ledgerly Demo (fictional) | avery@ledgerly-demo.example | ledgerly-demo | Owner |
 | Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-client | Client |
 | Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-client | Client |
 
@@ -118,11 +119,11 @@ Sandbox test, after the API has restarted with those three values:
 
 ## Fictional demo
 
-Demo in the sidebar opens three fictional businesses with separate books: a service studio, a retail shop, and a repair contractor. Sign in as `avery@ledgerly-demo.example` / `ledgerly-demo`, or open Demo from any firm. The page shows the scenario count and the last stored check result.
+The fictional demo is its own firm, Ledgerly Demo (fictional). Sign in as `avery@ledgerly-demo.example` / `ledgerly-demo`. That sign-in opens the three fictional businesses: a service studio, a retail shop, and a repair contractor. The sidebar names the firm under the open client, and Demo is in that firm’s sidebar. A paying firm such as Northstar or Harbor Street Advisors does not list Demo, and its sign-in opens that firm’s own clients.
 
-Reset demo data restores that set. It does not change Northstar, Harbor Street Advisors, or any other firm that is not the demo. Run accounting checks runs the book checks and stores pass or fail. A passing result is not a certification or an audit opinion. Nothing on the demo is a live bank, and the clients do not store tax identifiers.
+Reset demo data deletes and recreates only the demo firm. It does not change Northstar, Harbor Street Advisors, or any other firm. Run accounting checks runs the book checks and stores pass or fail on the demo firm. A passing result is not a certification or an audit opinion. Nothing on the demo is a live bank, and the clients do not store tax identifiers.
 
-The same actions are `POST /api/demo/reset` and `POST /api/demo/checks` while signed in. `GET /api/demo` reads the page.
+The same actions are `POST /api/demo/reset` and `POST /api/demo/checks` while signed in to the demo firm. `GET /api/demo` reads the page. Another firm’s session gets 404 and does not receive the demo clients, books, tasks, documents, or users.
 
 ## Still the published picture
 
