@@ -2016,6 +2016,15 @@ inherits:false}
 .subscription-form .field{flex:1;min-width:140px;margin:0}
 .subscription-form .button{height:38px}
 .subscription-card .books-table{margin-top:8px}
+.queue-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.queue-card{text-align:left;background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;color:inherit}
+.queue-card span{display:block;color:var(--muted);font-size:12px}
+.queue-card strong{display:block;margin-top:6px;font-size:22px}
+.queue-card.active{border-color:var(--blue);box-shadow:0 0 0 2px rgba(57,118,210,.18)}
+.queue-filters{flex-wrap:wrap}
+.queue-filters select,.queue-filters input[type=date]{height:40px;border:1px solid var(--border);border-radius:10px;background:#fff;padding:0 10px}
+.queue-actions{white-space:nowrap}
+.request-row.request-focus{outline:2px solid var(--blue);border-radius:10px}
 .subscription-card .form-error{padding:0 18px 14px}
 .form-error{color:var(--red);font-size:12px;margin:0}
 .modal .form-error{padding:0 21px 16px}

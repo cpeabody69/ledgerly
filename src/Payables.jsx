@@ -53,13 +53,13 @@ const TABS = [
   ["aging", "Aging"],
 ];
 
-export function Payables({ clientId }) {
-  const [section, setSection] = useState("dashboard");
+export function Payables({ clientId, initialBillId = null }) {
+  const [section, setSection] = useState(initialBillId ? "bills" : "dashboard");
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [vendorId, setVendorId] = useState(null);
-  const [billId, setBillId] = useState(null);
+  const [billId, setBillId] = useState(initialBillId);
   const [creating, setCreating] = useState("");
 
   function load() {
@@ -78,7 +78,8 @@ export function Payables({ clientId }) {
     let cancelled = false;
     setPayload(null);
     setVendorId(null);
-    setBillId(null);
+    setBillId(initialBillId);
+    setSection(initialBillId ? "bills" : "dashboard");
     setCreating("");
     fetch("/api/payables").then(async (response) => {
       const body = await readJson(response);
@@ -94,7 +95,7 @@ export function Payables({ clientId }) {
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [clientId, initialBillId]);
 
   const vendors = payload?.vendors || [];
   const bills = payload?.bills || [];
