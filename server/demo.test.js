@@ -138,7 +138,7 @@ test("demo books balance, checks are stored, and reset leaves other firms alone"
 
     const avery = cookieJar();
     const demoSession = await signIn(avery, base, { email: "avery@ledgerly-demo.example", password: "ledgerly-demo" });
-    assert.equal(demoSession.firm.name, "Ledgerly Demo (fictional)");
+    assert.equal(demoSession.firm.name, "Avenue Demo (fictional)");
     assert.equal(demoSession.firm.demo, true);
     assert.equal(demoSession.clients.length, 3);
     assert.match(demoSession.client.name, /fictional/i);
@@ -276,7 +276,7 @@ test("demo books balance, checks are stored, and reset leaves other firms alone"
     assert.deepEqual(payingAtChecks, payingBefore);
     const restored = await json(avery, base, "/api/demo/reset", { method: "POST" });
     assert.equal(restored.response.status, 200);
-    assert.equal(restored.body.session.firm.name, "Ledgerly Demo (fictional)");
+    assert.equal(restored.body.session.firm.name, "Avenue Demo (fictional)");
     assert.equal(restored.body.session.firm.demo, true);
     assert.equal(restored.body.scenarioCount, 3);
     assert.equal(restored.body.lastResult, null);
@@ -301,7 +301,7 @@ test("demo books balance, checks are stored, and reset leaves other firms alone"
     await json(avery, base, "/api/session", { method: "DELETE" });
     const averyAgain = await signIn(avery, base, { email: "avery@ledgerly-demo.example", password: "ledgerly-demo" });
     assert.equal(averyAgain.firm.demo, true);
-    assert.equal(averyAgain.firm.name, "Ledgerly Demo (fictional)");
+    assert.equal(averyAgain.firm.name, "Avenue Demo (fictional)");
     assert.match(averyAgain.client.name, /fictional/i);
     assert.equal(averyAgain.clients.some((client) => client.name === "Northstar Creative" || client.name === "Cedar & Pine Goods"), false);
 

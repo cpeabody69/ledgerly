@@ -140,7 +140,7 @@ export function Documents({ clientId }) {
       <div className="page-header">
         <div>
           <h1>Documents</h1>
-          <p>Stored files for this client. Ledgerly keeps the bytes and does not extract them.</p>
+          <p>Stored files for this client. Avenue keeps the bytes and does not extract them.</p>
         </div>
         <div className="header-actions">
           <Button variant="secondary" onClick={() => setFolderId("new")}>New folder</Button>

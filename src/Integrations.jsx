@@ -5,7 +5,7 @@ function readJson(response) {
 }
 
 const RETURN_MESSAGES = {
-  state: "QuickBooks returned a sign-in that Ledgerly could not match. This attempt did not connect a company.",
+  state: "QuickBooks returned a sign-in that Avenue could not match. This attempt did not connect a company.",
   denied: "QuickBooks authorization was declined. This attempt did not connect a company.",
   missing_token: "QuickBooks did not return a token. This attempt did not connect a company.",
   realm: "QuickBooks did not return a company id. This attempt did not connect a company.",

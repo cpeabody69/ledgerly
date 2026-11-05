@@ -27,6 +27,13 @@ export function App() {
   const [path, go] = usePath();
 
   useEffect(() => {
+    if (path === "/terms" || session === undefined) return;
+    if (PUBLIC_PATHS.has(path) || !session) return;
+    if (session.onboarding || path === "/onboarding" || path === "/subscribe/return") return;
+    document.title = session.portal ? "Client portal · Avenue" : "Avenue";
+  }, [path, session]);
+
+  useEffect(() => {
     let cancel = false;
     fetch("/api/session")
       .then(async (response) => {

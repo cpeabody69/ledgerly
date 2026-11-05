@@ -153,12 +153,12 @@ export function subscriptionBlocksWork(db, firmId) {
   const summary = subscriptionSummary(db, firmId);
   if (summary.allowsWork) return "";
   if (summary.status === "past_due") {
-    return "This firm's Ledgerly subscription is past due. Books stay readable. New clients, journal entries, invoices, bills, and invites stay blocked until it is paid.";
+    return "This firm's Avenue subscription is past due. Books stay readable. New clients, journal entries, invoices, bills, and invites stay blocked until it is paid.";
   }
   if (summary.status === "canceled") {
-    return "This firm's Ledgerly subscription is canceled. Books stay readable. New clients, journal entries, invoices, bills, and invites stay blocked until a plan is active.";
+    return "This firm's Avenue subscription is canceled. Books stay readable. New clients, journal entries, invoices, bills, and invites stay blocked until a plan is active.";
   }
-  return "Choose a Ledgerly plan and seat count before creating new work.";
+  return "Choose an Avenue plan and seat count before creating new work.";
 }
 
 export function subscriptionWriteError(db, session, method, pathname) {
