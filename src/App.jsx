@@ -3,6 +3,7 @@ import { Portal } from "./Portal.jsx";
 import { Te } from "./Shell.jsx";
 import { ChecklistBanner, OnboardingScreen, PublicAuth } from "./AuthScreens.jsx";
 import { SubscribeReturn, SubscriptionBanner } from "./Subscription.jsx";
+import { Privacy } from "./Privacy.jsx";
 import { Terms } from "./Terms.jsx";
 
 const PUBLIC_PATHS = new Set(["/register", "/forgot-password", "/reset-password", "/verify-email", "/invitation"]);
@@ -46,6 +47,7 @@ export function App() {
   }, []);
 
   if (path === "/terms") return <Terms go={go} />;
+  if (path === "/privacy") return <Privacy go={go} />;
   if (session === undefined) return <div className="sign-in" />;
   if (path === "/subscribe/return" && session) {
     return <SubscribeReturn session={session} onSession={setSession} go={go} />;

@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { SubscribeGate } from "./Subscription.jsx";
 
-const PRIVACY = "I agree to the Ledgerly Privacy notice. This build stores the account in its database. It does not send the address to an email provider.";
-
 export function Brand() {
   return (
     <div className="sign-in-brand">
@@ -231,7 +229,9 @@ function Register({ go }) {
             </label>
             <label className="auth-check">
               <input type="checkbox" checked={form.acceptPrivacy} onChange={(event) => set("acceptPrivacy", event.target.checked)} />
-              <span>{PRIVACY}</span>
+              <span>
+                I agree to the Ledgerly <a href="/privacy" onClick={(event) => { event.preventDefault(); event.stopPropagation(); go("/privacy"); }}>Privacy Policy</a>. This build stores the firm account and the client records that firm enters. It does not send the address to an email provider.
+              </span>
             </label>
             <ErrorText error={error} />
             <button className="button primary" type="submit" disabled={pending}>{pending ? "Creating account…" : "Create account"}</button>
