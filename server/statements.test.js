@@ -158,7 +158,8 @@ test("reports and dashboard metrics are not the published statement", () => {
   assert.doesNotMatch(shell, /\$24,259/);
   assert.match(shell, /cashFlow\.receivedCents/);
   assert.match(shell, /cashFlow \? formatMoney\(netCents\)/);
-  assert.match(shell, /Stripe Payments/);
+  assert.match(shell, /RecentTransactions clientId=\{session\.client\?\.id\}/);
+  assert.doesNotMatch(shell, /Amazon Web Services|WeWork|Acme Studio LLC/);
   assert.doesNotMatch(shell, /\$84,240\.00/);
   assert.doesNotMatch(shell, /\$128,430\.62/);
   assert.doesNotMatch(shell, /12\.5%/);

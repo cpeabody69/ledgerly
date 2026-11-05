@@ -40,3 +40,16 @@ export function formatSigned(cents) {
   if (cents > 0) return `+${text}`;
   return text;
 }
+
+export function recentActivity(payload, clientId, limit = 4) {
+  if (!payload || typeof payload !== "object" || !clientId) return [];
+  if (payload.client?.id !== clientId) return [];
+  const transactions = Array.isArray(payload.transactions) ? payload.transactions : [];
+  return transactions.slice(0, limit).map((row) => ({
+    id: row.id,
+    date: row.postedOnLabel || "",
+    description: row.description || "",
+    amount: formatSigned(row.amountCents),
+    type: row.amountCents < 0 ? "expense" : "income",
+  }));
+}

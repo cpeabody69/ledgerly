@@ -7,7 +7,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { start } from "./app.js";
-import { matchesPeriod, reconciliationMath, summarize } from "../shared/activity.js";
+import { matchesPeriod, recentActivity, reconciliationMath, summarize } from "../shared/activity.js";
 
 const fixtureCsv = readFileSync(new URL("./fixtures/activity.csv", import.meta.url), "utf8");
 
@@ -278,7 +278,7 @@ test("the dashboard save stores a transaction instead of only toasting", () => {
   assert.match(shell, /method: `POST`/);
   assert.match(shell, /if \(!response\.ok \|\| !body\.transaction\)/);
   assert.match(shell, /if \(!row\?\.id\) return/);
-  assert.match(shell, /Stripe Payments/);
+  assert.match(shell, /RecentTransactions clientId=\{session\.client\?\.id\}/);
   assert.doesNotMatch(shell, /Add transaction saved successfully/);
 });
 
@@ -288,10 +288,92 @@ test("transactions and banking screens do not keep the published bank feed", () 
   const banking = readFileSync(new URL("../src/Banking.jsx", import.meta.url), "utf8");
   assert.doesNotMatch(shell, /\$6,800\.00/);
   assert.doesNotMatch(shell, /\$18,740\.00/);
-  assert.match(shell, /Stripe Payments/);
+  assert.match(shell, /RecentTransactions clientId=\{session\.client\?\.id\}/);
+  assert.doesNotMatch(shell, /Amazon Web Services|WeWork|Acme Studio LLC/);
   assert.doesNotMatch(shell, /\$84,240\.00/);
   assert.doesNotMatch(shell, /\$128,430\.62/);
   assert.doesNotMatch(transactions, /Mercury|American Express|Chase|8,420/);
   assert.doesNotMatch(banking, /Mercury|American Express|Chase|connected feed/);
   assert.match(banking, /Not a live bank connection/);
+});
+
+test("the dashboard recent list is the open client's own bank activity", async () => {
+  const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
+  const screen = readFileSync(new URL("../src/Transactions.jsx", import.meta.url), "utf8");
+  assert.match(shell, /RecentTransactions clientId=\{session\.client\?\.id\}/);
+  assert.match(screen, /\/api\/transactions\?\$\{params\}/);
+  assert.match(screen, /recentActivity\(payload, clientId\)/);
+  assert.match(screen, /<b>\{row\.description\}<\/b><small>\{row\.date\}<\/small>/);
+  assert.match(screen, /\{row\.amount\}/);
+  for (const sample of ["Stripe Payments", "Amazon Web Services", "WeWork", "Acme Studio LLC", "+$8,420.00", "−$642.18", "−$1,850.00", "+$4,750.00"]) {
+    assert.equal(shell.includes(sample), false, sample);
+    assert.equal(screen.includes(sample), false, sample);
+  }
+  assert.deepEqual(recentActivity({
+    client: { id: "other" },
+    transactions: [{ id: "sample", postedOnLabel: "May 24, 2026", description: "Stripe Payments", amountCents: 842000 }],
+  }, "open"), []);
+  assert.deepEqual(recentActivity({
+    client: { id: "open" },
+    transactions: [
+      { id: "1", postedOnLabel: "May 24, 2026", description: "Newest", amountCents: 100 },
+      { id: "2", postedOnLabel: "May 23, 2026", description: "Second", amountCents: -250 },
+      { id: "3", postedOnLabel: "May 22, 2026", description: "Third", amountCents: 0 },
+      { id: "4", postedOnLabel: "May 21, 2026", description: "Fourth", amountCents: 400 },
+      { id: "5", postedOnLabel: "May 20, 2026", description: "Older", amountCents: 500 },
+    ],
+  }, "open").map((row) => row.description), ["Newest", "Second", "Third", "Fourth"]);
+
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const northstarId = signedIn.client.id;
+    const haven = signedIn.clients.find((client) => client.name === "Haven Coffee Roasters");
+    const northstarAccount = await postJson(olivia, base, "/api/bank-accounts", { name: "Operating checking", kind: "bank" });
+    assert.equal(northstarAccount.response.status, 201);
+    const older = await postJson(olivia, base, "/api/transactions", {
+      bankAccountId: northstarAccount.body.accounts[0].id,
+      postedOn: "2026-05-02",
+      description: "Northstar paper fee",
+      amount: "-18.40",
+    });
+    assert.equal(older.response.status, 201);
+    const newer = await postJson(olivia, base, "/api/transactions", {
+      bankAccountId: northstarAccount.body.accounts[0].id,
+      postedOn: "2026-05-24",
+      description: "Northstar client deposit",
+      amount: "125.00",
+    });
+    assert.equal(newer.response.status, 201);
+
+    await selectClient(olivia, base, haven.id);
+    const havenAccount = await postJson(olivia, base, "/api/bank-accounts", { name: "Cafe checking", kind: "bank" });
+    assert.equal(havenAccount.response.status, 201);
+    const havenLine = await postJson(olivia, base, "/api/transactions", {
+      bankAccountId: havenAccount.body.accounts[0].id,
+      postedOn: "2026-05-20",
+      description: "Haven pastry invoice",
+      amount: "80.00",
+    });
+    assert.equal(havenLine.response.status, 201);
+    const havenList = await (await olivia.fetch(`${base}/api/transactions?clientId=${encodeURIComponent(haven.id)}`)).json();
+    const havenRows = recentActivity(havenList, haven.id);
+    assert.deepEqual(havenRows.map((row) => ({ date: row.date, description: row.description, amount: row.amount })), [
+      { date: "May 20, 2026", description: "Haven pastry invoice", amount: "+$80.00" },
+    ]);
+    assert.equal(JSON.stringify(havenRows).includes("Northstar"), false);
+
+    const hidden = await olivia.fetch(`${base}/api/transactions?clientId=${encodeURIComponent(northstarId)}`);
+    assert.equal(hidden.status, 404);
+    assert.deepEqual(recentActivity(await hidden.json(), northstarId), []);
+
+    await selectClient(olivia, base, northstarId);
+    const northstarList = await (await olivia.fetch(`${base}/api/transactions?clientId=${encodeURIComponent(northstarId)}`)).json();
+    const northstarRows = recentActivity(northstarList, northstarId);
+    assert.deepEqual(northstarRows.map((row) => ({ date: row.date, description: row.description, amount: row.amount })), [
+      { date: "May 24, 2026", description: "Northstar client deposit", amount: "+$125.00" },
+      { date: "May 2, 2026", description: "Northstar paper fee", amount: "−$18.40" },
+    ]);
+    assert.equal(JSON.stringify(northstarRows).includes("Haven pastry invoice"), false);
+  });
 });
