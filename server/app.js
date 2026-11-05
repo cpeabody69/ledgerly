@@ -17,7 +17,7 @@ import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import { readSubscription, recordFirmPayment, updateSeats } from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
-import { commentWorkTask, completeWorkTask, createWorkTask, readClientTasks, readWork, readWorkTask, updateWorkTask } from "./work.js";
+import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -918,6 +918,25 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/notices") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, readNotices(db, session));
+    return;
+  }
+
+  const noticeRead = pathname.match(/^\/api\/notices\/([^/]+)\/read$/);
+  if (noticeRead && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, markNoticeRead(db, session, decodeURIComponent(noticeRead[1])));
     return;
   }
 
