@@ -4,7 +4,7 @@ import { Brand } from "./AuthScreens.jsx";
 export function Privacy({ go }) {
   useEffect(() => {
     const previous = document.title;
-    document.title = "Privacy Policy · Ledgerly";
+    document.title = "Privacy Policy · Avenue";
     return () => {
       document.title = previous;
     };
@@ -16,7 +16,7 @@ export function Privacy({ go }) {
         <Brand />
         <h1>Privacy Policy</h1>
         <p className="lede">
-          This notice describes what a Ledgerly workspace keeps for a CPA firm. It is sample product language. It is not a real legal policy, and it is not legal advice.
+          This notice describes what a Avenue workspace keeps for a CPA firm. It is sample product language. It is not a real legal policy, and it is not legal advice.
         </p>
         <p className="terms-date">Sample notice · March 2, 2026</p>
 
@@ -25,12 +25,12 @@ export function Privacy({ go }) {
           A firm account stores a name, a work email, and a password. The workspace also stores the client books, documents, notes, and the bank or ledger records that firm enters, so the firm can open them again.
         </p>
         <p>
-          Ledgerly keeps those records in its database for that account. This build does not send the work email to an outside email provider.
+          Avenue keeps those records in its database for that account. This build does not send the work email to an outside email provider.
         </p>
 
         <h2>Client data stays in that firm</h2>
         <p>
-          Client records stay with the firm that created them. Ledgerly does not open one firm’s clients to another firm. A person sees a client only when their role includes that client.
+          Client records stay with the firm that created them. Avenue does not open one firm’s clients to another firm. A person sees a client only when their role includes that client.
         </p>
 
         <h2>Sandbox bank and QuickBooks connections</h2>
