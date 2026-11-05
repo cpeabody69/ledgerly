@@ -1,7 +1,7 @@
 // Preserved Ledgerly shell from the published bundle.
 // Sign-in, sign-out, the client switcher, and Settings invites talk to the API.
 // Accounting is the client's books. Transactions and Banking are this client's statement activity.
-// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. New transaction stores a statement line for the open client. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses. Time is this firm's staff, work, and hours. Tax readiness is a checklist read from this client's books, plus a status a person records. The assistant reads this client's books and drafts a journal a person posts. Settings shows this firm's Ledgerly plan and seats.
+// Dashboard metrics, the revenue chart, outstanding invoices, and upcoming bills use the ledger. Recent transactions are this client's bank activity. New transaction stores a statement line for the open client. The Clients screen is this firm's books and review queue. Invoices are this client's drafts, receivables, and payments. Expenses are this client's bills and paid expenses. Time is this firm's staff, work, and hours. Tax readiness is a checklist read from this client's books, plus a status a person records. The assistant reads this client's books and drafts a journal a person posts. Settings shows this firm's Ledgerly plan and seats.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { PERIODS } from "../shared/activity.js";
 import { formatMoney } from "../shared/money.js";
@@ -16,7 +16,7 @@ import { Assistant } from "./Assistant.jsx";
 import { SubscriptionSetting } from "./Subscription.jsx";
 import { Tax } from "./Tax.jsx";
 import { Time } from "./Time.jsx";
-import { Transactions } from "./Transactions.jsx";
+import { RecentTransactions, Transactions } from "./Transactions.jsx";
 import { Payables } from "./Payables.jsx";
 import { Documents } from "./Documents.jsx";
 import { TaskNotices } from "./Notices.jsx";
@@ -71,12 +71,6 @@ function Cmp_w({
   active: a = !1
 }) {
   return <button className={`button ${t} ${a ? `active` : ``}`} onClick={r} disabled={i}>{n && <C name={n} size={16} />}<span>{e}</span></button>;
-}
-function Cmp_ne({
-  children: e,
-  tone: t = `neutral`
-}) {
-  return <span className={`badge ${t}`}>{e}</span>;
 }
 function T({
   initials: e,
@@ -136,107 +130,6 @@ function Cmp_se({
 }) {
   return <div className="empty-state"><span><C name="search" /></span><b>{e}</b><p>{t}</p></div>;
 }
-var ce = [{
-  date: `May 24`,
-  name: `Stripe Payments`,
-  detail: `Payout · #ST-80421`,
-  category: `Sales income`,
-  account: `Business checking`,
-  amount: `+$8,420.00`,
-  type: `income`,
-  status: `Categorized`,
-  bankDetail: `Mercury · Operating 8842`
-}, {
-  date: `May 23`,
-  name: `Amazon Web Services`,
-  detail: `Cloud infrastructure`,
-  category: `Software & hosting`,
-  account: `Amex ·· 1042`,
-  amount: `−$642.18`,
-  type: `expense`,
-  status: `For review`,
-  bankDetail: `American Express · 1042`
-}, {
-  date: `May 23`,
-  name: `WeWork`,
-  detail: `Monthly membership`,
-  category: `Rent & lease`,
-  account: `Business checking`,
-  amount: `−$1,850.00`,
-  type: `expense`,
-  status: `Categorized`,
-  bankDetail: `Mercury · Operating 8842`
-}, {
-  date: `May 22`,
-  name: `Acme Studio LLC`,
-  detail: `Invoice #INV-1084`,
-  category: `Consulting income`,
-  account: `Business checking`,
-  amount: `+$4,750.00`,
-  type: `income`,
-  status: `Matched`,
-  bankDetail: `Mercury · Operating 8842`
-}, {
-  date: `May 21`,
-  name: `Adobe`,
-  detail: `Creative Cloud`,
-  category: `Software & hosting`,
-  account: `Visa ·· 4831`,
-  amount: `−$89.99`,
-  type: `expense`,
-  status: `Categorized`,
-  bankDetail: `Chase Visa · 4831`
-}, {
-  date: `May 20`,
-  name: `Gusto`,
-  detail: `Payroll · May`,
-  category: `Payroll expense`,
-  account: `Business checking`,
-  amount: `−$6,284.50`,
-  type: `expense`,
-  status: `Matched`,
-  bankDetail: `Mercury · Operating 8842`
-}, {
-  date: `May 19`,
-  name: `Figma`,
-  detail: `Design files`,
-  category: `Software & hosting`,
-  account: `Amex ·· 1042`,
-  amount: `−$128.00`,
-  type: `expense`,
-  status: `Categorized`,
-  bankDetail: `American Express · 1042`
-}, {
-  date: `May 18`,
-  name: `Brightline Labs`,
-  detail: `Invoice #INV-1079`,
-  category: `Consulting income`,
-  account: `Business checking`,
-  amount: `+$3,840.00`,
-  type: `income`,
-  status: `Matched`,
-  bankDetail: `Mercury · Operating 8842`
-}, {
-  date: `May 17`,
-  name: `Delta Air Lines`,
-  detail: `Client travel · SFO to JFK`,
-  category: `Travel`,
-  account: `Visa ·· 4831`,
-  amount: `−$486.42`,
-  type: `expense`,
-  status: `For review`,
-  bankDetail: `Chase Visa · 4831`
-}, {
-  date: `May 16`,
-  name: `Mercury Treasury`,
-  detail: `Monthly interest payment`,
-  category: `Interest income`,
-  account: `Business savings`,
-  amount: `+$184.72`,
-  type: `income`,
-  status: `Categorized`,
-  bankDetail: `Mercury · Treasury 2091`
-}];
 function Cmp_le({
   label: e,
   value: t,
@@ -291,22 +184,9 @@ function Cmp_de() {
   return <div className="page"><D title={`Good morning, ${session.user.name.split(" ")[0]}`} subtitle={`Here’s how ${session.client.name} is performing for ${figures?.period.label || period}.`} actions={<><Cmp_oe value={period} onChange={setPeriod} /><Cmp_w icon="plus" onClick={() => t(`transaction`)}>New transaction</Cmp_w></>} /><div className="metrics-grid"><Cmp_le label="Total revenue" value={metrics ? metrics.revenue : `—`} change={metrics?.revenueChange?.text} positive={metrics?.revenueChange?.positive} icon="arrowUp" accent="blue" /><Cmp_le label="Total expenses" value={metrics ? metrics.expenses : `—`} change={metrics?.expenseChange?.text} positive={metrics?.expenseChange?.positive} icon="arrowDown" accent="coral" /><Cmp_le label="Net income" value={metrics ? metrics.netIncome : `—`} change={metrics?.netIncomeChange?.text} positive={metrics?.netIncomeChange?.positive} icon="chart" accent="green" /><Cmp_le label="Cash balance" value={metrics ? metrics.cash : `—`} change={metrics?.cashChange} positive={metrics?.cashChangePositive} icon="wallet" accent="purple" /></div><div className="dashboard-main"><E className="chart-card"><Cmp_re title="Revenue & expenses" subtitle="Monthly totals from the same ledger" action={<div className="chart-tools"><span><i className="legend blue" />Revenue</span><span><i className="legend gray" />Expenses</span><Cmp_ae value={basisLabel} label="View" options={[`Accrual basis`, `Cash basis`]} onChange={setBasisLabel} /></div>} /><div className="chart-summary"><strong>{chart ? chart.revenue : `—`}</strong>{chart?.change ? <span className={chart.change.positive ? `trend-up` : `trend-down`}><C name={chart.change.positive ? `arrowUp` : `arrowDown`} size={13} />{chart.change.text}</span> : null}<em>total revenue</em></div><Cmp_ue months={chart?.months || []} /></E><E className="cash-card"><Cmp_re title="Cash flow" subtitle={figures?.period.label || period} /><div className="cash-total"><span>Net cash flow</span><strong>{cashFlow ? formatMoney(netCents) : `—`}</strong></div><div className="cash-bars">{cashFlow ? [[`In`, receivedCents], [`Out`, paidCents]].map(([label, cents]) => <div className="bar-group" key={label}><div className="bars"><i style={{
                 height: `${Math.round(cents / barPeak * 100)}%`
               }} /></div><span>{label}</span></div>) : null}</div><div className="cash-legend"><span><i className="legend blue" />Cash in <b>{cashFlow ? formatMoney(receivedCents) : `—`}</b></span><span><i className="legend light" />Cash out <b>{cashFlow ? formatMoney(paidCents) : `—`}</b></span></div></E></div>
-<div className="dashboard-lower"><E className="transactions-card"><Cmp_re title="Recent transactions" subtitle="Your latest account activity" action={<button className="text-button" onClick={() => e(`Transactions`)}>View all <C name="chevron" size={14} /></button>} /><Cmp_fe compact={!0} /></E><div className="right-stack"><OutstandingInvoices clientId={session.client?.id} onOpen={() => e(`Invoices`)} /><UpcomingBills clientId={session.client?.id} onOpen={() => e(`Expenses`)} /></div></div><E className="quick-actions"><div><span className="sparkle"><C name="sparkle" /></span><span><b>Quick actions</b><small>Save time on everyday tasks</small></span></div><div className="quick-buttons"><Cmp_w variant="secondary" icon="invoice" onClick={() => t(`invoice`)}>Create invoice</Cmp_w><Cmp_w variant="secondary" icon="upload" onClick={() => t(`upload`)}>Upload receipt</Cmp_w><Cmp_w variant="secondary" icon="arrows" onClick={() => t(`expense`)}>Record expense</Cmp_w><Cmp_w variant="secondary" icon="chart" onClick={() => e(`Reports`)}>Run a report</Cmp_w></div></E></div>;
+<div className="dashboard-lower"><E className="transactions-card"><Cmp_re title="Recent transactions" subtitle="Your latest account activity" action={<button className="text-button" onClick={() => e(`Transactions`)}>View all <C name="chevron" size={14} /></button>} /><RecentTransactions clientId={session.client?.id} /></E><div className="right-stack"><OutstandingInvoices clientId={session.client?.id} onOpen={() => e(`Invoices`)} /><UpcomingBills clientId={session.client?.id} onOpen={() => e(`Expenses`)} /></div></div><E className="quick-actions"><div><span className="sparkle"><C name="sparkle" /></span><span><b>Quick actions</b><small>Save time on everyday tasks</small></span></div><div className="quick-buttons"><Cmp_w variant="secondary" icon="invoice" onClick={() => t(`invoice`)}>Create invoice</Cmp_w><Cmp_w variant="secondary" icon="upload" onClick={() => t(`upload`)}>Upload receipt</Cmp_w><Cmp_w variant="secondary" icon="arrows" onClick={() => t(`expense`)}>Record expense</Cmp_w><Cmp_w variant="secondary" icon="chart" onClick={() => e(`Reports`)}>Run a report</Cmp_w></div></E></div>;
 }
 
-function Cmp_fe({
-  compact: e = !1,
-  rows: t = ce,
-  selected: n = [],
-  onToggle: r,
-  onToggleAll: i,
-  onOpen: a,
-  sort: o,
-  onSort: s
-}) {
-  let c = e ? t.slice(0, 4) : t;
-  return <div className={e ? `transaction-list` : `table-wrap`}>{e ? c.map(e => <div className="transaction-row" key={e.name}><span className={`transaction-icon ${e.type}`}><C name={e.type === `income` ? `arrowDown` : `arrowUp`} size={16} /></span><span className="transaction-name"><b>{e.name}</b><small>{e.date} · {e.category}</small></span><strong className={e.type}>{e.amount}</strong></div>) : <table><thead><tr><th><input type="checkbox" aria-label="Select all" checked={c.length > 0 && c.every(e => n.includes(e.name))} onChange={i} /></th><th><button className={`sort-button ${o === `newest` || o === `oldest` ? `active` : ``}`} onClick={() => s?.(o === `newest` ? `oldest` : `newest`)}>Date<C name={o === `oldest` ? `arrowUp` : `arrowDown`} size={11} /></button></th><th>Description</th><th>Category</th><th>Account</th><th><button className={`sort-button ${o === `amount` ? `active` : ``}`} onClick={() => s?.(`amount`)}>Amount <C name="arrowDown" size={11} /></button></th><th>Status</th><th /></tr></thead><tbody>{c.map(e => <tr className={n.includes(e.name) ? `selected-row` : ``} onDoubleClick={() => a?.(e)} key={e.name}><td><input type="checkbox" aria-label={`Select ${e.name}`} checked={n.includes(e.name)} onChange={() => r?.(e.name)} /></td><td>{e.date}, 2025</td><td><div className="table-primary"><span className={`transaction-icon ${e.type}`}><C name={e.type === `income` ? `arrowDown` : `arrowUp`} size={15} /></span><span><b>{e.name}</b><small>{e.detail}</small></span></div></td><td><Cmp_ne>{e.category}</Cmp_ne></td><td>{e.account}</td><td><strong className={e.type}>{e.amount}</strong></td><td><Cmp_ne tone={e.status === `For review` ? `amber` : e.status === `Matched` ? `blue` : `green`}>{e.status}</Cmp_ne></td><td><button className="row-action" aria-label={`Open ${e.name} transaction`} onClick={() => a?.(e)}><C name="more" /></button></td></tr>)}</tbody></table>}</div>;
-}
 function InviteModal({
   onClose,
   onCreated
@@ -534,7 +414,7 @@ function Te({ session, onSession }) {
       if (task.clientId && task.clientId !== session.client?.id) await selectClient(task.clientId, { navigateTo: task.target.screen, ...extras });
       else h(task.target.screen, extras);
     },
-    g = o.trim() ? [[`Stripe Payments`, `Transaction · +$8,420.00`, `Transactions`], [`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
+    g = o.trim() ? [[`Profit & loss`, `Report · May 2025`, `Reports`]].filter(e => e.join(` `).toLowerCase().includes(o.toLowerCase())) : [],
     _ = e === `Dashboard` ? <Cmp_de /> : e === `Work Queue` ? <WorkQueue onOpenTask={openWorkTask} /> : e === `Transactions` ? <Transactions key={`${session.client?.id}:${transactionTab}:${transactionPeriod}`} clientId={session.client?.id} initialTab={transactionTab} initialPeriod={transactionPeriod} /> : e === `Banking` ? <Banking key={session.client?.id} clientId={session.client?.id} /> : e === `Accounting` ? <Accounting key={session.client?.id} clientId={session.client?.id} draft={journalDraft} onDraftUsed={() => setJournalDraft(null)} /> : e === `Reports` ? <Reports key={session.client?.id} clientId={session.client?.id} /> : e === `Invoices` ? <Invoices key={`${session.client?.id}:${invoiceVersion}:${workFocus?.invoiceId || ""}`} clientId={session.client?.id} initialInvoiceId={workFocus?.invoiceId || null} onCreate={() => r(`invoice`)} /> : e === `Expenses` ? <Expenses key={`${session.client?.id}:${expenseVersion}`} clientId={session.client?.id} onCreate={() => r(`expense`)} /> : e === `Accounts Payable` ? <Payables key={`${session.client?.id}:${workFocus?.billId || ""}`} clientId={session.client?.id} initialBillId={workFocus?.billId || null} /> : e === `Documents` ? <Documents key={session.client?.id} clientId={session.client?.id} /> : e === `Time` ? <Time key={session.client?.id} clientId={session.client?.id} clients={session.clients} onSession={onSession} onOpenInvoices={() => h(`Invoices`)} /> : e === `Tax` ? <Tax key={session.client?.id} clientId={session.client?.id} /> : e === `Clients` ? <Clients selectedClientId={session.client?.id} focusRequestId={workFocus?.requestId || ""} onOpenClient={id => selectClient(id, { navigateTo: `Dashboard` })} onReview={client => selectClient(client.id, client.uncategorized > 0 ? { navigateTo: `Transactions`, transactionTab: `for_review`, transactionPeriod: `Custom range` } : { navigateTo: `Banking` })} onSession={onSession} /> : e === `Demo` && session.firm?.demo ? <Demo onSession={onSession} /> : <Ce name={e} />;
   return <ie.Provider value={{
     navigate: h,

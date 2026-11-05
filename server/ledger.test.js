@@ -359,7 +359,8 @@ test("invoices and the dashboard's other published widgets stay in the shell", (
   const accounting = readFileSync(new URL("../src/Accounting.jsx", import.meta.url), "utf8");
   assert.doesNotMatch(shell, /\$6,800\.00/);
   assert.doesNotMatch(shell, /\$18,740\.00/);
-  assert.match(shell, /Stripe Payments/);
+  assert.match(shell, /RecentTransactions clientId=\{session\.client\?\.id\}/);
+  assert.doesNotMatch(shell, /Amazon Web Services|WeWork|Acme Studio LLC/);
   assert.match(shell, /OutstandingInvoices/);
   assert.doesNotMatch(shell, /\$84,240\.00/);
   assert.doesNotMatch(shell, /\$128,430\.62/);

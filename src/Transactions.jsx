@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { PERIODS, formatSigned, matchesPeriod, summarize } from "../shared/activity.js";
+import { PERIODS, formatSigned, matchesPeriod, recentActivity, summarize } from "../shared/activity.js";
 
 const TABS = [
   ["all", "All"],
@@ -45,6 +45,41 @@ function badgeTone(status) {
 
 async function readJson(response) {
   return response.json().catch(() => ({}));
+}
+
+export function RecentTransactions({ clientId }) {
+  const [payload, setPayload] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPayload(null);
+    if (!clientId) return undefined;
+    const params = new URLSearchParams({ clientId });
+    fetch(`/api/transactions?${params}`).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (cancelled || !response.ok || body.client?.id !== clientId) return;
+      setPayload(body);
+    }).catch(() => {
+      if (!cancelled) setPayload(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  const rows = recentActivity(payload, clientId);
+  return (
+    <div className="transaction-list">
+      {payload && !rows.length ? <p className="books-note">No transactions yet.</p> : null}
+      {rows.map((row) => (
+        <div className="transaction-row" key={row.id}>
+          <span className={`transaction-icon ${row.type}`}><Icon name={row.type === "income" ? "down" : "up"} /></span>
+          <span className="transaction-name"><b>{row.description}</b><small>{row.date}</small></span>
+          <strong className={row.type}>{row.amount}</strong>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function Transactions({ clientId, initialTab = "all", initialPeriod = PERIODS[0] }) {
