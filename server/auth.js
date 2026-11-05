@@ -356,7 +356,7 @@ function devMailboxOn(req, options) {
 
 export function authConfig(req, options) {
   return {
-    product: "Ledgerly",
+    product: "Avenue",
     emailDelivery: "not_configured",
     devMailbox: devMailboxOn(req, options),
     businessTypes: FIRM_BUSINESS_TYPES.map(([id, label]) => ({ id, label })),
@@ -546,8 +546,8 @@ export function registerFirm(db, input, { devMailbox }) {
     storeMessage(db, {
       email,
       purpose: "verify_email",
-      subject: "Verify your Ledgerly email",
-      body: "Use the verification link to finish creating the firm. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
+      subject: "Verify your Avenue email",
+      body: "Use the verification link to finish creating the firm. Avenue is at https://avenuesoftware.app. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
       linkPath: issued.linkPath,
     });
   }
@@ -600,8 +600,8 @@ export function resendVerification(db, input, { devMailbox }) {
       storeMessage(db, {
         email,
         purpose: "verify_email",
-        subject: "Verify your Ledgerly email",
-        body: "Use the verification link to finish creating the firm. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
+        subject: "Verify your Avenue email",
+        body: "Use the verification link to finish creating the firm. Avenue is at https://avenuesoftware.app. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
         linkPath: issued.linkPath,
       });
     }
@@ -632,8 +632,8 @@ export function requestPasswordReset(db, input, { devMailbox }) {
       storeMessage(db, {
         email,
         purpose: "password_reset",
-        subject: "Reset your Ledgerly password",
-        body: "Use the reset link to choose a new password. The link expires in one hour. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
+        subject: "Reset your Avenue password",
+        body: "Use the reset link to choose a new password for Avenue (https://avenuesoftware.app). The link expires in one hour. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
         linkPath: issued.linkPath,
       });
     }
@@ -816,8 +816,8 @@ export function createClientInvitation(db, session, clientId, input, { devMailbo
     storeMessage(db, {
       email,
       purpose: "client_invitation",
-      subject: `Invitation to ${client.name} on Ledgerly`,
-      body: "A firm invited this address to the client portal. The link expires in 7 days and works once. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
+      subject: `Invitation to ${client.name} on Avenue`,
+      body: "A firm invited this address to the client portal on Avenue (https://avenuesoftware.app). The link expires in 7 days and works once. Email delivery is not configured, so this copy is stored only in the local development mailbox.",
       linkPath,
     });
   }

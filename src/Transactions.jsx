@@ -298,7 +298,7 @@ export function Transactions({ clientId, initialTab = "all", initialPeriod = PER
 function sourceLabel(source) {
   if (source === "plaid") return "Sandbox bank";
   if (source === "csv") return "Imported from a CSV";
-  return "Entered in Ledgerly";
+  return "Entered in Avenue";
 }
 
 function TransactionDrawer({ transaction, accounts, onClose, onCategorize, onExclude }) {

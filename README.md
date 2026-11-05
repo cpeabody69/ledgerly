@@ -1,6 +1,6 @@
-# Ledgerly
+# Avenue
 
-Accounting workspace for a CPA firm. Phase 1 keeps the published Ledgerly shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers. Phase 5 makes the Clients screen the firm’s client list and review queue. Phase 6 stores document requests and synthetic files for that firm. Phase 7 keeps invoices for the open client: a draft, a sent receivable, and a recorded payment.
+Accounting workspace for a CPA firm. The public site is https://avenuesoftware.app. Phase 1 keeps the published Avenue shell and adds a real firm boundary: sign-in, sign-out, a client switcher, and staff invites. Phase 2 makes the Accounting screen the books for the open client. Phase 3 stores that client’s bank and card activity. Phase 4 prepares profit and loss, the balance sheet, and cash flow from those books, and the dashboard metrics use the same numbers. Phase 5 makes the Clients screen the firm’s client list and review queue. Phase 6 stores document requests and synthetic files for that firm. Phase 7 keeps invoices for the open client: a draft, a sent receivable, and a recorded payment.
 
 Northstar is the firm. Haven Coffee Roasters, Brightline Labs, Mason & Finch, and Northstar Creative are that firm’s clients. Each client has a separate chart, ledger, statement activity, and invoices.
 
@@ -27,7 +27,7 @@ Each person has their own email and password. Signing in identifies that person 
 | Northstar | sam@northstarcreative.co | ledgerly-sam | Staff |
 | Northstar | riley@northstarcreative.co | ledgerly-riley | Staff |
 | Harbor Street Advisors | jordan@harborstreet.example | ledgerly-jordan | Organization Owner |
-| Ledgerly Demo (fictional) | avery@ledgerly-demo.example | ledgerly-demo | Organization Owner |
+| Avenue Demo (fictional) | avery@ledgerly-demo.example | ledgerly-demo | Organization Owner |
 | Brightline Labs (Northstar client) | casey@brightline.example | ledgerly-casey | Business Client |
 | Cedar & Pine Goods (Harbor client) | rowan@cedar.example | ledgerly-rowan | Business Client |
 
@@ -37,7 +37,7 @@ An organization owner or administrator invites an employee from Settings and set
 
 The sign-in page links to Create a firm account. The form asks for full name, work email, password, password confirmation, and acceptance of the Terms and the Privacy notice. The account stays unverified until the verification link is opened. After that, the owner enters the firm name, business type, country, time zone, accounting method, and fiscal year. That creates the organization and makes the creator the organization owner.
 
-After the firm is saved, a new firm chooses a Ledgerly plan and a seat count. Stripe Checkout in test mode starts that subscription. The workspace does not open for new work until the subscription is active. The checklist that follows can add a client, send a portal invitation, upload a sample document, and mark or skip the chart, sandbox bank, Work Queue, and reports. Skipped steps stay on the checklist until they are resumed. Opening the workspace requires an active subscription and at least one client, because the books are per client. Northstar, Harbor Street Advisors, and Ledgerly Demo are sample firms and stay usable without Stripe.
+After the firm is saved, a new firm chooses an Avenue plan and a seat count. Stripe Checkout in test mode starts that subscription. The workspace does not open for new work until the subscription is active. The checklist that follows can add a client, send a portal invitation, upload a sample document, and mark or skip the chart, sandbox bank, Work Queue, and reports. Skipped steps stay on the checklist until they are resumed. Opening the workspace requires an active subscription and at least one client, because the books are per client. Northstar, Harbor Street Advisors, and Avenue Demo are sample firms and stay usable without Stripe.
 
 Email delivery is not configured. No mail provider is connected. Outside production, the API stores the verification, reset, and invitation links in a local development mailbox. Open it from the screen after registering, or request `GET /api/dev/mailbox?email=` on localhost. Set `LEDGERLY_DEV_MAILBOX=0` to hide that route. `NODE_ENV=production` hides it unless `LEDGERLY_DEV_MAILBOX=1`. Do not treat the mailbox as production email.
 
@@ -98,7 +98,7 @@ Each firm user has a staff record in addition to the phase 1 role. Time is enter
 
 ## Client portal
 
-A client signs in with their own account. Brightline Labs uses `casey@brightline.example` / `ledgerly-casey`. Cedar & Pine Goods uses `rowan@cedar.example` / `ledgerly-rowan`. Casey’s password does not sign in Rowan, and Rowan’s password does not sign in Casey. The page is the same Ledgerly sign-in. After sign-in the client sees that one client’s requests, files, and invoices. Submitting a file on an open request stores it and marks the request received. The firm’s open-request list updates when that person signs back in. Journal, statement, and other-client routes answer 404. The client does not post journal entries, send invoices, or open the firm sidebar.
+A client signs in with their own account. Brightline Labs uses `casey@brightline.example` / `ledgerly-casey`. Cedar & Pine Goods uses `rowan@cedar.example` / `ledgerly-rowan`. Casey’s password does not sign in Rowan, and Rowan’s password does not sign in Casey. The page is the same Avenue sign-in. After sign-in the client sees that one client’s requests, files, and invoices. Submitting a file on an open request stores it and marks the request received. The firm’s open-request list updates when that person signs back in. Journal, statement, and other-client routes answer 404. The client does not post journal entries, send invoices, or open the firm sidebar.
 
 ## Tax readiness
 
@@ -108,13 +108,13 @@ The Tax screen reads the open client’s books for the current season. The check
 
 Explore Ledger AI opens an assistant for the open client. It reads that client’s statements, uncategorized lines, missing documents, and tax checklist, and it can draft a journal. The draft stays off the ledger until a person posts it with New journal entry. Suggestions are marked AI-generated and carry a confidence indicator. Each recommendation and each human approval is stored.
 
-The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MODEL_API_KEY`, and `LEDGERLY_MODEL_URL`. `LEDGERLY_MODEL_NAME` selects the model; when it is empty, the request asks the endpoint for its reasoning model, with structured output and the read-only tools. No key means the same tools run on the stored books and the assistant says the external model is not configured. Client figures stay in Ledgerly. This build uses synthetic clients and does not train on them.
+The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MODEL_API_KEY`, and `LEDGERLY_MODEL_URL`. `LEDGERLY_MODEL_NAME` selects the model; when it is empty, the request asks the endpoint for its reasoning model, with structured output and the read-only tools. No key means the same tools run on the stored books and the assistant says the external model is not configured. Client figures stay in Avenue. This build uses synthetic clients and does not train on them.
 
 ## Firm subscription
 
 This is a test-mode gate. It is not production-ready. There is no live billing, no tax calculation, and no claim that a card was charged.
 
-Settings shows Ledgerly’s plan for the firm. Sample firms (Northstar, Harbor Street Advisors, and Ledgerly Demo) stay on the Practice plan without a Stripe customer. An owner of a sample firm can still change the seat count and record a firm payment. That payment is stored on the firm. It does not post a journal entry, invoice, bill, or balance on a client.
+Settings shows Avenue’s plan for the firm. Sample firms (Northstar, Harbor Street Advisors, and Avenue Demo) stay on the Practice plan without a Stripe customer. An owner of a sample firm can still change the seat count and record a firm payment. That payment is stored on the firm. It does not post a journal entry, invoice, bill, or balance on a client.
 
 A firm created through `/register` is different. After email verification and firm creation, the owner picks Practice or Firm and a seat count. Continue to Stripe test checkout only when `STRIPE_SECRET_KEY` is an `sk_test_` key and the matching price id is set. A live key is refused. If those values are missing, the plan screen says test keys are not configured and does not crash. The secret key, webhook secret, and price ids stay in the server environment. They are not written into the browser bundle.
 
@@ -129,7 +129,7 @@ STRIPE_PRICE_PRACTICE=price_...
 STRIPE_PRICE_FIRM=price_...
 ```
 
-Restart the API after saving `.env`. In the Stripe dashboard, create two recurring test prices and use card `4242 4242 4242 4242` with any future expiry and any CVC. That card is Stripe’s published test card, not a Ledgerly secret.
+Restart the API after saving `.env`. In the Stripe dashboard, create two recurring test prices and use card `4242 4242 4242 4242` with any future expiry and any CVC. That card is Stripe’s published test card, not an Avenue secret.
 
 Local webhook, from another terminal, after [the Stripe CLI](https://docs.stripe.com/stripe-cli) is logged into test mode:
 
@@ -154,7 +154,7 @@ Sandbox test, after the API has restarted with those three values:
 1. Sign in and open a client. Go to Banking.
 2. Choose Connect Bank Account. Plaid Link opens.
 3. Search for First Platypus Bank (`ins_109508`), the non-OAuth sandbox institution in [Plaid’s sandbox institution list](https://plaid.com/docs/sandbox/institutions/).
-4. Sign in with the sandbox username `user_good` and password `pass_good` from [Plaid’s sandbox test credentials](https://plaid.com/docs/sandbox/test-credentials/). These are Plaid’s published test user, not a Ledgerly secret.
+4. Sign in with the sandbox username `user_good` and password `pass_good` from [Plaid’s sandbox test credentials](https://plaid.com/docs/sandbox/test-credentials/). These are Plaid’s published test user, not an Avenue secret.
 5. Select the accounts Link offers and finish. Banking shows the connected accounts and their balances.
 6. Open Transactions. The imported lines are For review, with a suggested category and no journal. Approve one, or change the account and save. That is the post. The others stay off the trial balance.
 7. Choose Sync transactions. The same lines are not added again.
@@ -169,7 +169,7 @@ Copy the names from `.env.example`. For `npm run dev`, set `QUICKBOOKS_REDIRECT_
 
 ## Fictional demo
 
-The fictional demo is its own firm, Ledgerly Demo (fictional). Sign in as `avery@ledgerly-demo.example` / `ledgerly-demo`. That sign-in opens the three fictional businesses: a service studio, a retail shop, and a repair contractor. The sidebar names the firm under the open client, and Demo is in that firm’s sidebar. A paying firm such as Northstar or Harbor Street Advisors does not list Demo, and its sign-in opens that firm’s own clients.
+The fictional demo is its own firm, Avenue Demo (fictional). Sign in as `avery@ledgerly-demo.example` / `ledgerly-demo`. That sign-in opens the three fictional businesses: a service studio, a retail shop, and a repair contractor. The sidebar names the firm under the open client, and Demo is in that firm’s sidebar. A paying firm such as Northstar or Harbor Street Advisors does not list Demo, and its sign-in opens that firm’s own clients.
 
 Reset demo data deletes and recreates only the demo firm. It does not change Northstar, Harbor Street Advisors, or any other firm. Run accounting checks runs the book checks and stores pass or fail on the demo firm. A passing result is not a certification or an audit opinion. Nothing on the demo is a live bank, and the clients do not store tax identifiers.
 

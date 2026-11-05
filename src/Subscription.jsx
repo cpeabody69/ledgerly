@@ -205,10 +205,18 @@ export function SubscribeReturn({ onSession, go }) {
     };
   }, [go, onSession]);
 
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "Avenue subscription";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
+
   return (
     <div className="sign-in">
       <div className="auth-wide gate-card">
-        <h1>Ledgerly subscription</h1>
+        <h1>Avenue subscription</h1>
         <p className="lede">{done ? "Subscription saved. Opening the firm…" : "Confirming the Stripe test checkout…"}</p>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         {error ? <button className="button secondary" type="button" onClick={() => go("/onboarding")}>Back to the plan</button> : null}
@@ -309,7 +317,7 @@ export function SubscriptionSetting({ session, onSession }) {
     <section className="card subscription-card" aria-label="Firm subscription">
       <div className="card-header">
         <div>
-          <h2>Ledgerly subscription</h2>
+          <h2>Avenue subscription</h2>
           <p>The plan and seats belong to {session.firm.name}. They are not part of a client’s books.</p>
         </div>
       </div>
@@ -333,7 +341,7 @@ export function SubscriptionSetting({ session, onSession }) {
       {exempt ? (
         <form className="subscription-form payment" onSubmit={recordPayment}>
           <label className="field">
-            <span>Amount the firm paid Ledgerly</span>
+            <span>Amount the firm paid Avenue</span>
             <input aria-label="Firm payment amount" value={amount} disabled={!owner || pending === "payment"} onChange={(event) => setAmount(event.target.value)} placeholder="49.00" />
           </label>
           <label className="field">
@@ -361,7 +369,7 @@ export function SubscriptionSetting({ session, onSession }) {
       ) : null}
       {exempt && !billing.length ? <p className="banking-empty">No firm payments recorded.</p> : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {owner ? null : <p className="books-note">An owner changes the seat count and records what the firm pays Ledgerly.</p>}
+      {owner ? null : <p className="books-note">An owner changes the seat count and records what the firm pays Avenue.</p>}
     </section>
   );
 }

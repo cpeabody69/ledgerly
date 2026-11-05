@@ -50,7 +50,7 @@ function samplePeople() {
     for (const member of firm.members || []) people.push({ ...member, firm: firm.name });
     if (firm.portal) people.push({ ...firm.portal, role: "client", firm: firm.name });
   }
-  people.push({ ...DEMO_OWNER, role: "owner", firm: "Ledgerly Demo (fictional)" });
+  people.push({ ...DEMO_OWNER, role: "owner", firm: "Avenue Demo (fictional)" });
   return people;
 }
 
@@ -164,7 +164,7 @@ test("two people in one firm sign in separately, and a password does not open an
     const avery = await signIn(cookieJar(), base, DEMO_OWNER);
     assert.equal(avery.response.status, 200);
     assert.equal(avery.body.user.email, DEMO_OWNER.email);
-    assert.equal(avery.body.firm.name, "Ledgerly Demo (fictional)");
+    assert.equal(avery.body.firm.name, "Avenue Demo (fictional)");
     assert.equal(avery.body.firm.demo, true);
     assert.equal(avery.body.clients.some((client) => client.name === "Northstar Creative" || client.name === "Cedar & Pine Goods"), false);
     assert.equal(avery.body.members.some((member) => member.email === firms.northstar.owner.email || member.email === firms.harbor.owner.email), false);

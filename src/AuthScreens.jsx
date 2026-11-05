@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SubscribeGate } from "./Subscription.jsx";
 
-const PRIVACY = "I agree to the Ledgerly Privacy notice. This build stores the account in its database. It does not send the address to an email provider.";
+const PRIVACY = "I agree to the Avenue Privacy notice. This build stores the account in its database. It does not send the address to an email provider.";
 
 export function Brand() {
   return (
@@ -11,7 +11,7 @@ export function Brand() {
         <i />
         <i />
       </span>
-      <span>Ledgerly</span>
+      <span>Avenue</span>
     </div>
   );
 }
@@ -19,7 +19,7 @@ export function Brand() {
 function MailNote() {
   return (
     <p className="mail-note">
-      Email delivery is not configured. Ledgerly stores the link in a local development mailbox on this machine. That mailbox is not a connected mail provider.
+      Email delivery is not configured. Avenue stores the link in a local development mailbox on this machine. That mailbox is not a connected mail provider.
     </p>
   );
 }
@@ -68,7 +68,19 @@ function ErrorText({ error }) {
   );
 }
 
+const PAGE_TITLES = {
+  "/register": "Create a firm account",
+  "/forgot-password": "Reset password",
+  "/reset-password": "Choose a new password",
+  "/verify-email": "Verify email",
+  "/invitation": "Client invitation",
+};
+
 export function PublicAuth({ path, go, onSession }) {
+  useEffect(() => {
+    const page = PAGE_TITLES[path] || "Sign in";
+    document.title = `${page} · Avenue`;
+  }, [path]);
   if (path === "/register") return <Register go={go} />;
   if (path === "/forgot-password") return <Forgot go={go} />;
   if (path === "/reset-password") return <Reset go={go} />;
@@ -100,7 +112,7 @@ export function SignIn({ go, onSession }) {
       onSession(body);
       go("/");
     } catch {
-      setError("Could not reach Ledgerly.");
+      setError("Could not reach Avenue.");
     } finally {
       setPending(false);
     }
@@ -111,7 +123,7 @@ export function SignIn({ go, onSession }) {
       <form onSubmit={submit}>
         <Brand />
         <h1>Sign in</h1>
-        <p className="lede">Sign in to Ledgerly. Firm staff and invited clients use the same page.</p>
+        <p className="lede">Sign in to Avenue. Firm staff and invited clients use the same page.</p>
         <Field label="Email">
           <input name="email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
         </Field>
@@ -191,7 +203,7 @@ function Register({ go }) {
       }
       setDone(body);
     } catch {
-      setError("Could not reach Ledgerly.");
+      setError("Could not reach Avenue.");
     } finally {
       setPending(false);
     }
@@ -226,7 +238,7 @@ function Register({ go }) {
             <label className="auth-check">
               <input type="checkbox" checked={form.acceptTerms} onChange={(event) => set("acceptTerms", event.target.checked)} />
               <span>
-                I agree to the Ledgerly <a href="/terms" onClick={(event) => { event.preventDefault(); event.stopPropagation(); go("/terms"); }}>Terms of Service</a> for this workspace. This records acceptance for the account. It is not a legal opinion or a signed engagement letter.
+                I agree to the Avenue <a href="/terms" onClick={(event) => { event.preventDefault(); event.stopPropagation(); go("/terms"); }}>Terms of Service</a> for this workspace. This records acceptance for the account. It is not a legal opinion or a signed engagement letter.
               </span>
             </label>
             <label className="auth-check">
@@ -272,7 +284,7 @@ function Verify({ onSession, go }) {
         go("/onboarding");
       })
       .catch(() => {
-        if (!cancel) setError("Could not reach Ledgerly.");
+        if (!cancel) setError("Could not reach Avenue.");
       })
       .finally(() => {
         if (!cancel) setPending(false);
@@ -318,7 +330,7 @@ function Forgot({ go }) {
       setMessage(body.message);
       setShowMailbox(Boolean(body.devMailbox));
     } catch {
-      setError("Could not reach Ledgerly.");
+      setError("Could not reach Avenue.");
     } finally {
       setPending(false);
     }
@@ -368,7 +380,7 @@ function Reset({ go }) {
       }
       setMessage(body.message);
     } catch {
-      setError("Could not reach Ledgerly.");
+      setError("Could not reach Avenue.");
     } finally {
       setPending(false);
     }
@@ -424,7 +436,7 @@ function Invitation({ onSession }) {
         setPreview(body);
         setName(body.name || "");
       })
-      .catch(() => setError("Could not reach Ledgerly."));
+      .catch(() => setError("Could not reach Avenue."));
   }, []);
 
   async function submit(event) {
@@ -445,7 +457,7 @@ function Invitation({ onSession }) {
       window.history.pushState({}, "", "/");
       window.location.assign("/");
     } catch {
-      setError("Could not reach Ledgerly.");
+      setError("Could not reach Avenue.");
     } finally {
       setPending(false);
     }
@@ -496,6 +508,10 @@ export function OnboardingScreen({ session, onSession, go }) {
   const [client, setClient] = useState({ name: "", legalName: "", industry: "" });
   const [invite, setInvite] = useState({ name: "", email: "" });
   const [fileName, setFileName] = useState("sample-note.txt");
+
+  useEffect(() => {
+    document.title = "Set up the firm · Avenue";
+  }, []);
 
   useEffect(() => {
     fetch("/api/auth/config")

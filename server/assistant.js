@@ -40,7 +40,7 @@ export const ASSISTANT_TOOLS = Object.freeze([
 ]);
 
 const NOT_CONFIGURED = "The external model is not configured.";
-const REFUSAL = "I can't file a return, approve a treatment, or post a journal. Nothing was sent, and the ledger was not changed. A person does that in Ledgerly.";
+const REFUSAL = "I can't file a return, approve a treatment, or post a journal. Nothing was sent, and the ledger was not changed. A person does that in Avenue.";
 
 const MODEL_ENV = ["LEDGERLY_MODEL_PROVIDER", "LEDGERLY_MODEL_API_KEY", "LEDGERLY_MODEL_URL", "LEDGERLY_MODEL_NAME"];
 
@@ -430,7 +430,7 @@ async function callModel(config, prompt) {
       messages: [
         {
           role: "system",
-          content: "Choose one read-only tool. You cannot post, approve, or file. Client figures stay in Ledgerly. Do not train on customer data.",
+          content: "Choose one read-only tool. You cannot post, approve, or file. Client figures stay in Avenue. Do not train on customer data.",
         },
         { role: "user", content: prompt },
       ],

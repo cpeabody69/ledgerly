@@ -11,7 +11,7 @@ const STRIPE_ENV_KEYS = [
 const SECRET_TEXT = /(?:sk|rk)_(?:test|live)_[A-Za-z0-9]+|whsec_[A-Za-z0-9]+/g;
 
 export const MISSING_STRIPE_KEYS = "Stripe test keys are not configured. Add STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRACTICE, and STRIPE_PRICE_FIRM in the server environment. No charge is attempted.";
-export const LIVE_STRIPE_KEY = "A Stripe live key was refused. Ledgerly uses Stripe test mode only, so no charge is attempted.";
+export const LIVE_STRIPE_KEY = "A Stripe live key was refused. Avenue uses Stripe test mode only, so no charge is attempted.";
 export const MISSING_STRIPE_PRICES = "Stripe test mode is missing a price id. Set STRIPE_PRICE_PRACTICE and STRIPE_PRICE_FIRM. No charge is attempted.";
 
 export function redact(value) {

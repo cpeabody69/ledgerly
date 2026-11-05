@@ -91,7 +91,7 @@ export function Portal({ session, onSession }) {
             <i />
             <i />
           </span>
-          <span>Ledgerly</span>
+          <span>Avenue</span>
         </div>
         <div className="portal-account">
           <span className="avatar blue">{client?.initials}</span>

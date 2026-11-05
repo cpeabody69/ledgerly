@@ -18,7 +18,7 @@ export const DEMO_OWNER = {
   name: "Avery Quinn",
 };
 
-const DEMO_FIRM = "Ledgerly Demo (fictional)";
+const DEMO_FIRM = "Avenue Demo (fictional)";
 
 const NOTICE = "These businesses are fictional. Passing these checks is not a certification or an audit opinion.";
 

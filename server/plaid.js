@@ -226,7 +226,7 @@ export async function createLinkToken(db, session) {
   const { config, error } = requireConfigured();
   if (error) return error;
   const body = {
-    client_name: "Ledgerly",
+    client_name: "Avenue",
     language: "en",
     country_codes: ["US"],
     user: { client_user_id: session.user_id },
