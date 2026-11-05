@@ -1,11 +1,11 @@
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { createClient, inviteMember, loadSession, openDatabase, selectClient, sessionPayload, signIn, signOut } from "./db.js";
+import { createClient, inviteMember, loadSession, openDatabase, openFirmSession, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { archiveClient, listFirm, readClient, updateClient } from "./clients.js";
 import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
 import { listDocumentReviews, storeDocumentReview } from "./document-reviews.js";
-import { listPortal, readPortalDocument, submitPortalFile } from "./portal.js";
+import { listPortal, readPortalDocument, signInPortal, submitPortalFile } from "./portal.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
@@ -14,11 +14,23 @@ import { bulkTransactions, categorizeTransaction, completeReconciliation, create
 import { readStatements } from "./statements.js";
 import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } from "./tax.js";
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
-import { readSubscription, recordFirmPayment, updateSeats } from "./subscription.js";
+import {
+  confirmCheckout,
+  handleStripeWebhook,
+  openStripeInvoice,
+  readSubscription,
+  recordFirmPayment,
+  refreshStripeSubscription,
+  startCheckout,
+  subscriptionWriteError,
+  updateSeats,
+  updateStripeSeats,
+} from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
-import { readDemo, resetDemo, runDemoChecks } from "./demo.js";
+import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
+import { crossSiteError, handleAuthRoutes, noteOnboarding, onboardingPassthrough, readonlyWriteError, withinRateLimit } from "./auth.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -54,12 +66,50 @@ function send(res, status, body, extraHeaders = {}) {
   res.end(payload);
 }
 
+function cookieSuffix() {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `HttpOnly; SameSite=Lax; Path=/${secure}`;
+}
+
 function setSessionCookie(token) {
-  return `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${14 * 24 * 60 * 60}`;
+  return `${COOKIE}=${encodeURIComponent(token)}; ${cookieSuffix()}; Max-Age=${14 * 24 * 60 * 60}`;
 }
 
 function clearSessionCookie() {
-  return `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+  return `${COOKIE}=; ${cookieSuffix()}; Max-Age=0`;
+}
+
+function readRawBody(req, limit = 262144) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(Object.assign(new Error("Body is too large."), { status: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
+function requestOrigin(req) {
+  const host = String(req.headers.host || "127.0.0.1");
+  const origin = String(req.headers.origin || "");
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      if (url.host === host) return url.origin;
+    } catch {
+      return `http://${host}`;
+    }
+  }
+  const forwarded = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  return `${forwarded === "https" ? "https" : "http"}://${host}`;
 }
 
 function readBody(req) {
@@ -126,15 +176,61 @@ async function handle(req, res, db, options) {
   }
 
   const session = loadSession(db, readCookie(req, COOKIE));
+  const blocked = crossSiteError(req);
+  if (blocked) {
+    send(res, 403, { error: blocked });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/stripe/webhook") {
+    const raw = await readRawBody(req);
+    const result = handleStripeWebhook(db, raw, req.headers["stripe-signature"] || "");
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  const handled = await handleAuthRoutes(req, res, db, {
+    url,
+    session,
+    send,
+    readBody,
+    setSessionCookie,
+    options,
+    signInPortalAccount: signInPortal,
+    startFirmSession: openFirmSession,
+    sessionPayload,
+  });
+  if (handled) return;
 
   if (req.method === "POST" && pathname === "/api/session") {
+    if (!withinRateLimit(options, req, "login", 1000, 15 * 60 * 1000)) {
+      send(res, 429, { error: "Too many attempts. Try again later." });
+      return;
+    }
     const body = await readBody(req);
+    if (String(body.email || "").trim().toLowerCase() === DEMO_OWNER.email) ensureDemo(db);
     const signedIn = signIn(db, body.email, body.password);
     if (!signedIn) {
       send(res, 401, { error: "Email or password is incorrect." });
       return;
     }
+    if (signedIn.error) {
+      send(res, signedIn.status || 403, { error: signedIn.error });
+      return;
+    }
     send(res, 200, signedIn.payload, { "set-cookie": setSessionCookie(signedIn.token) });
+    return;
+  }
+
+  if (session?.onboarding && !onboardingPassthrough(req.method, pathname)) {
+    send(res, 403, { error: "Finish onboarding before opening that page." });
+    return;
+  }
+
+  const readonlyError = readonlyWriteError(db, session, req.method, pathname);
+  if (readonlyError) {
+    send(res, 403, { error: readonlyError });
     return;
   }
 
@@ -173,6 +269,12 @@ async function handle(req, res, db, options) {
       return;
     }
     send(res, 404, { error: "Not found." });
+    return;
+  }
+
+  const subscriptionError = subscriptionWriteError(db, session, req.method, pathname);
+  if (subscriptionError) {
+    send(res, 403, { error: subscriptionError });
     return;
   }
 
@@ -609,6 +711,7 @@ async function handle(req, res, db, options) {
       period: url.searchParams.get("period"),
       basis: url.searchParams.get("basis"),
     });
+    if (!result.error) noteOnboarding(db, session, "reports");
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
@@ -620,6 +723,7 @@ async function handle(req, res, db, options) {
       return;
     }
     const result = readLedger(db, session, url.searchParams.get("clientId"));
+    if (!result.error) noteOnboarding(db, session, "chart");
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;
@@ -853,6 +957,64 @@ async function handle(req, res, db, options) {
     return;
   }
 
+  if (pathname === "/api/subscription/checkout" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await startCheckout(db, session, await readBody(req), {
+      origin: requestOrigin(req),
+      stripeRequest: options.stripeRequest,
+    });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/checkout/confirm" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await confirmCheckout(db, session, await readBody(req), { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/refresh" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await refreshStripeSubscription(db, session, { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/seats" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await updateStripeSeats(db, session, await readBody(req), { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/invoice" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await openStripeInvoice(db, session, { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
   if (pathname === "/api/plaid" && req.method === "GET") {
     if (!session) {
       send(res, 401, { error: "Sign in required." });
@@ -913,7 +1075,7 @@ async function handle(req, res, db, options) {
       return;
     }
     try {
-      sendResult(res, readDemo(db));
+      sendResult(res, readDemo(db, session));
     } catch (error) {
       send(res, 500, { error: error.message || "The demo could not be prepared." });
     }
@@ -927,6 +1089,10 @@ async function handle(req, res, db, options) {
     }
     try {
       const result = resetDemo(db, session);
+      if (result.error) {
+        send(res, result.status, { error: result.error });
+        return;
+      }
       const headers = result.token ? { "set-cookie": setSessionCookie(result.token) } : {};
       send(res, result.status, result.payload, headers);
     } catch (error) {
@@ -941,7 +1107,7 @@ async function handle(req, res, db, options) {
       return;
     }
     try {
-      sendResult(res, runDemoChecks(db));
+      sendResult(res, runDemoChecks(db, session));
     } catch (error) {
       send(res, 500, { error: error.message || "The checks could not be stored." });
     }
@@ -987,7 +1153,9 @@ async function handle(req, res, db, options) {
       send(res, 401, { error: "Sign in required." });
       return;
     }
-    sendResult(res, readWork(db, session));
+    const result = readWork(db, session);
+    if (!result.error) noteOnboarding(db, session, "work_queue");
+    sendResult(res, result);
     return;
   }
 
@@ -1050,7 +1218,7 @@ export function start(dbPath, port = 0, options = {}) {
   const db = openDatabase(dbPath);
   const staticDir = options.staticDir ? path.resolve(options.staticDir) : null;
   const server = createServer((req, res) => {
-    handle(req, res, db, { staticDir }).catch((error) => {
+    handle(req, res, db, { ...options, staticDir }).catch((error) => {
       const status = error.status || 500;
       if (!res.headersSent) send(res, status, { error: status === 500 ? "Something went wrong." : error.message });
     });

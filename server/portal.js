@@ -151,7 +151,7 @@ export function portalPayload(db, session) {
       name: user.name,
       email: user.email,
       role: "client",
-      roleLabel: "Client",
+      roleLabel: "Business Client",
     },
     firm: { id: firm.id, name: firm.name },
     client: client ? clientJson(client) : null,
@@ -180,6 +180,11 @@ export function loadPortalSession(db, token) {
 export function signInPortal(db, email, password) {
   const user = db.prepare("SELECT * FROM client_users WHERE email = ?").get(email);
   if (!user || !verifyPassword(password || "", user.password_hash)) return null;
+  if (user.status === "deactivated") return { error: "This portal access is deactivated.", status: 403 };
+  const membership = db.prepare(
+    "SELECT status FROM portal_memberships WHERE client_user_id = ? AND firm_id = ? AND client_id = ?",
+  ).get(user.id, user.firm_id, user.client_id);
+  if (membership && membership.status !== "active") return { error: "This portal access is deactivated.", status: 403 };
   const now = new Date();
   const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
   const session = {

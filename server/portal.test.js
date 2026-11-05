@@ -342,10 +342,12 @@ test("an older database keeps stored files when client access is added", async (
 
 test("the client page uses the Ledgerly sign-in and leaves the firm shell alone", () => {
   const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  const auth = readFileSync(new URL("../src/AuthScreens.jsx", import.meta.url), "utf8");
   const portal = readFileSync(new URL("../src/Portal.jsx", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../src/Shell.jsx", import.meta.url), "utf8");
   assert.match(app, /session\.portal/);
-  assert.match(app, /Sign in to Ledgerly/);
+  assert.match(app, /PublicAuth/);
+  assert.match(auth, /Sign in to Ledgerly/);
   assert.match(portal, /Ledgerly/);
   assert.match(portal, /Submit file/);
   assert.doesNotMatch(portal, /className="sidebar"/);

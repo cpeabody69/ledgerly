@@ -98,7 +98,7 @@ function must(result, label) {
   return result;
 }
 
-function ensureDemoTables(db) {
+export function ensureDemoTables(db) {
   const columns = db.prepare("PRAGMA table_info(firms)").all();
   if (!columns.some((column) => column.name === "demo")) {
     db.exec("ALTER TABLE firms ADD COLUMN demo INTEGER NOT NULL DEFAULT 0");
@@ -119,6 +119,7 @@ function ensureDemoTables(db) {
     );
     CREATE TABLE IF NOT EXISTS demo_check_runs (
       id TEXT PRIMARY KEY,
+      firm_id TEXT NOT NULL,
       passed INTEGER NOT NULL,
       summary TEXT NOT NULL,
       detail TEXT NOT NULL,
@@ -143,11 +144,22 @@ function ensureDemoTables(db) {
       UNIQUE (firm_id, file_id)
     );
   `);
+  const checkColumns = db.prepare("PRAGMA table_info(demo_check_runs)").all();
+  if (checkColumns.length && !checkColumns.some((column) => column.name === "firm_id")) {
+    db.exec("ALTER TABLE demo_check_runs ADD COLUMN firm_id TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 function demoFirm(db) {
   ensureDemoTables(db);
   return db.prepare("SELECT id, name FROM firms WHERE demo = 1 ORDER BY created_at LIMIT 1").get() || null;
+}
+
+function denyUnlessDemo(db, session) {
+  if (!session || session.portal) return { status: 404, error: "Not found." };
+  const firm = demoFirm(db);
+  if (!firm || session.firm_id !== firm.id) return { status: 404, error: "Not found." };
+  return null;
 }
 
 function accountId(db, session, code) {
@@ -440,7 +452,8 @@ function wipeDemo(db) {
       if (table.name === "firms") continue;
       const columns = db.prepare(`PRAGMA table_info(${quoteName(table.name)})`).all();
       if (!columns.some((column) => column.name === "firm_id")) continue;
-      db.prepare(`DELETE FROM ${quoteName(table.name)} WHERE firm_id IN (${ids.map(() => "?").join(", ")})`).run(...ids);
+      const legacy = table.name === "demo_check_runs" ? " OR firm_id = ''" : "";
+      db.prepare(`DELETE FROM ${quoteName(table.name)} WHERE firm_id IN (${ids.map(() => "?").join(", ")})${legacy}`).run(...ids);
     }
     db.prepare(`DELETE FROM firms WHERE id IN (${ids.map(() => "?").join(", ")})`).run(...ids);
     db.exec("COMMIT");
@@ -596,13 +609,15 @@ function behaviorChecks() {
 }
 
 function storeRun(db, checks) {
+  const firm = demoFirm(db);
+  if (!firm) throw new Error("Demo firm is missing.");
   const passed = checks.length > 0 && checks.every((check) => check.passed);
   const failed = checks.filter((check) => !check.passed).length;
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    "INSERT INTO demo_check_runs (id, passed, summary, detail, created_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(id, passed ? 1 : 0, passed ? `${checks.length} checks passed` : `${failed} ${failed === 1 ? "check" : "checks"} failed`, JSON.stringify(checks), now);
+    "INSERT INTO demo_check_runs (id, firm_id, passed, summary, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, firm.id, passed ? 1 : 0, passed ? `${checks.length} checks passed` : `${failed} ${failed === 1 ? "check" : "checks"} failed`, JSON.stringify(checks), now);
   return id;
 }
 
@@ -693,7 +708,9 @@ function coveredAccounts(db, firmId, clientId) {
 
 function latestRun(db) {
   ensureDemoTables(db);
-  const row = db.prepare("SELECT * FROM demo_check_runs ORDER BY created_at DESC, id DESC LIMIT 1").get();
+  const firm = demoFirm(db);
+  if (!firm) return null;
+  const row = db.prepare("SELECT * FROM demo_check_runs WHERE firm_id = ? ORDER BY created_at DESC, id DESC LIMIT 1").get(firm.id);
   if (!row) return null;
   return {
     id: row.id,
@@ -706,8 +723,9 @@ function latestRun(db) {
   };
 }
 
-export function readDemo(db) {
-  ensureDemo(db);
+export function readDemo(db, session) {
+  const denied = denyUnlessDemo(db, session);
+  if (denied) return denied;
   const firm = demoFirm(db);
   const rows = db.prepare(
     `SELECT clients.id, clients.name, clients.industry, demo_scenarios.model, demo_scenarios.summary
@@ -747,19 +765,21 @@ export function readDemo(db) {
 }
 
 export function resetDemo(db, session) {
-  ensureDemoTables(db);
-  const callerWasDemo = Boolean(session && demoFirm(db) && session.firm_id === demoFirm(db).id);
+  const denied = denyUnlessDemo(db, session);
+  if (denied) return denied;
   wipeDemo(db);
-  seedDemo(db);
-  const replacement = callerWasDemo ? signIn(db, DEMO_OWNER.email, DEMO_OWNER.password) : null;
+  const firm = seedDemo(db);
+  const replacement = signIn(db, DEMO_OWNER.email, DEMO_OWNER.password);
   return {
     status: 200,
     token: replacement?.token || "",
-    payload: { ...readDemo(db).payload, session: replacement?.payload || null },
+    payload: { ...readDemo(db, { firm_id: firm.id }).payload, session: replacement?.payload || null },
   };
 }
 
-export function runDemoChecks(db) {
+export function runDemoChecks(db, session) {
+  const denied = denyUnlessDemo(db, session);
+  if (denied) return denied;
   ensureDemo(db);
   let checks = [];
   try {
@@ -768,5 +788,5 @@ export function runDemoChecks(db) {
     checks.push({ name: "Checks finished", passed: false, detail: error.message });
   }
   storeRun(db, checks);
-  return { status: 200, payload: readDemo(db).payload };
+  return { status: 200, payload: readDemo(db, session).payload };
 }

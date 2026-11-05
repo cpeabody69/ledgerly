@@ -60,7 +60,7 @@ test("two firms stay separate, sessions survive refresh, and staff cannot invite
     assert.equal(signedIn.response.status, 200);
     assert.equal(signedIn.body.firm.name, "Northstar");
     assert.equal(signedIn.body.user.role, "owner");
-    assert.equal(signedIn.body.user.roleLabel, "Administrator");
+    assert.equal(signedIn.body.user.roleLabel, "Organization Owner");
     assert.equal(signedIn.body.user.name, "Olivia Martin");
     assert.equal(signedIn.body.clients.length, 4);
     assert.equal(signedIn.body.client.name, "Northstar Creative");
@@ -114,22 +114,22 @@ test("two firms stay separate, sessions survive refresh, and staff cannot invite
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: "Sam Rivera",
-        email: "sam@northstarcreative.co",
+        name: "Pat Rivera",
+        email: "pat@northstarcreative.co",
         role: "staff",
-        password: "ledgerly-staff",
+        password: "ledgerly-pat",
       }),
     });
     assert.equal(invite.status, 201);
     const invitedFirm = await invite.json();
-    const sam = invitedFirm.members.find((member) => member.email === "sam@northstarcreative.co");
+    const sam = invitedFirm.members.find((member) => member.email === "pat@northstarcreative.co");
     assert.ok(sam);
     assert.equal(sam.role, "staff");
     assert.equal(sam.roleLabel, "Staff");
     assert.equal(invitedFirm.members.some((member) => member.email === firms.harbor.owner.email), false);
 
     const staff = cookieJar();
-    const staffSignIn = await signIn(staff, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    const staffSignIn = await signIn(staff, base, { email: "pat@northstarcreative.co", password: "ledgerly-pat" });
     assert.equal(staffSignIn.response.status, 200);
     assert.equal(staffSignIn.body.user.role, "staff");
     assert.equal(staffSignIn.body.firm.name, "Northstar");
@@ -204,7 +204,7 @@ test("two firms stay separate, sessions survive refresh, and staff cannot invite
     const harborFirm = firmsRows.find((row) => row.name === "Harbor Street Advisors");
     assert.equal(clientRows.filter((row) => row.firm_id === northstarFirm.id).length, 4);
     assert.equal(clientRows.filter((row) => row.firm_id === harborFirm.id).length, 2);
-    assert.equal(userRows.filter((row) => row.email === "sam@northstarcreative.co" && row.firm_id === northstarFirm.id).length, 1);
+    assert.equal(userRows.filter((row) => row.email === "pat@northstarcreative.co" && row.firm_id === northstarFirm.id).length, 1);
     db.close();
   });
 });
