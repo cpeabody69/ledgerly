@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { monthGrid, monthTitle, shiftMonth, shiftWeek, taskTiming, tasksOnDay, weekGrid, weekTitle } from "../shared/work-calendar.js";
 
 const CARDS = [
   ["open", "Open"],
@@ -151,6 +152,41 @@ function TaskForm({ queue, task, onClose, onSaved }) {
   );
 }
 
+function TaskCalendar({ tasks, today, anchor, view, onAnchor, onOpen }) {
+  const days = view === "week" ? weekGrid(anchor) : monthGrid(anchor);
+  const monthKey = anchor.slice(0, 7);
+  return (
+    <div className={`task-calendar ${view}`}>
+      <div className="calendar-toolbar">
+        <div className="queue-view">
+          <button className="button secondary" type="button" onClick={() => onAnchor(view === "week" ? shiftWeek(anchor, -1) : shiftMonth(anchor, -1))}>Previous</button>
+          <button className="button secondary" type="button" onClick={() => onAnchor(today || anchor)}>Today</button>
+          <button className="button secondary" type="button" onClick={() => onAnchor(view === "week" ? shiftWeek(anchor, 1) : shiftMonth(anchor, 1))}>Next</button>
+        </div>
+        <strong>{view === "week" ? weekTitle(anchor) : monthTitle(anchor)}</strong>
+        <div className="calendar-legend">
+          <span className="calendar-task overdue">Overdue</span>
+          <span className="calendar-task upcoming">Upcoming</span>
+        </div>
+      </div>
+      <div className="calendar-grid">
+        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => <span className="calendar-dow" key={label}>{label}</span>)}
+        {days.map((day) => {
+          const due = tasksOnDay(tasks, day);
+          return (
+            <div className={`calendar-day ${day === today ? "today" : ""} ${view === "month" && !day.startsWith(monthKey) ? "outside" : ""}`} key={day}>
+              <button className="day-number" type="button" onClick={() => { if (due.length === 1) onOpen(due[0]); }}>{Number(day.slice(-2))}</button>
+              {due.map((task) => (
+                <button className={`calendar-task ${taskTiming(task, today)}`} type="button" key={task.id} onClick={() => onOpen(task)}>{task.title}</button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TaskActivity({ task, onClose, onSaved }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
@@ -218,6 +254,8 @@ export function WorkQueue({ onOpenTask }) {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [activityId, setActivityId] = useState("");
+  const [view, setView] = useState("table");
+  const [cursor, setCursor] = useState("");
 
   function load() {
     return fetch("/api/tasks").then(async (response) => {
@@ -276,6 +314,13 @@ export function WorkQueue({ onOpenTask }) {
     setQueue(body);
   }
 
+  function openCalendarTask(task) {
+    if (task.target) onOpenTask?.(task);
+    else setActivityId(task.id);
+  }
+
+  const anchor = cursor || queue?.today || "";
+
   return (
     <div className="page work-queue">
       <div className="page-header">
@@ -284,6 +329,11 @@ export function WorkQueue({ onOpenTask }) {
           <p>Tasks for this firm. Cards and filters use the same stored rows.</p>
         </div>
         <div className="header-actions">
+          <div className="queue-view" role="group" aria-label="Queue view">
+            {[["table", "Table"], ["month", "Month"], ["week", "Week"]].map(([id, label]) => (
+              <button className={`button secondary ${view === id ? "active" : ""}`} type="button" key={id} onClick={() => setView(id)}>{label}</button>
+            ))}
+          </div>
           <Button icon="plus" onClick={() => { setCreating(true); setEditing(null); }}>New task</Button>
         </div>
       </div>
@@ -334,7 +384,8 @@ export function WorkQueue({ onOpenTask }) {
           <input aria-label="Due date" type="date" value={dueOn} onChange={(event) => setDueOn(event.target.value)} />
         </div>
         {error ? <p className="form-error books-error" role="alert">{error}</p> : null}
-        {rows.length ? (
+        {view !== "table" && anchor ? <TaskCalendar tasks={rows} today={queue?.today || ""} anchor={anchor} view={view} onAnchor={setCursor} onOpen={openCalendarTask} /> : null}
+        {view === "table" && rows.length ? (
           <div className="table-wrap">
             <table>
               <thead>
@@ -374,7 +425,8 @@ export function WorkQueue({ onOpenTask }) {
               </tbody>
             </table>
           </div>
-        ) : <div className="empty-state"><b>{queue ? "No tasks match" : "Loading tasks…"}</b><p>{queue ? "Try another card or filter." : ""}</p></div>}
+        ) : null}
+        {view === "table" && !rows.length ? <div className="empty-state"><b>{queue ? "No tasks match" : "Loading tasks…"}</b><p>{queue ? "Try another card or filter." : ""}</p></div> : null}
         <div className="table-footer"><span>Showing {rows.length} of {queue?.tasks.length || 0} tasks</span></div>
       </section>
       {creating && queue ? <TaskForm queue={queue} onClose={() => setCreating(false)} onSaved={(payload) => { setQueue(payload); setCreating(false); }} /> : null}

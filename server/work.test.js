@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { monthGrid, taskTiming, tasksOnDay, weekGrid } from "../shared/work-calendar.js";
 import { firms } from "./accounts.js";
 import { start } from "./app.js";
 
@@ -324,5 +326,51 @@ test("a status change writes history, the client list stays on that client, and 
     const portalText = await portal.text();
     assert.equal(portalText.includes(comment), false);
     assert.equal(portalText.includes("Internal only"), false);
+  });
+});
+
+test("a task due on a date appears that day in both calendar views, and moving the due date moves it", async () => {
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const dueOn = "2026-11-18";
+    const created = await sendJson(olivia, base, "POST", "/api/tasks", {
+      title: "Calendar filing",
+      clientId: signedIn.client.id,
+      dueOn,
+    });
+    assert.equal(created.response.status, 201);
+    const taskId = created.body.task.id;
+    const first = await (await olivia.fetch(`${base}/api/tasks`)).json();
+    const second = await (await olivia.fetch(`${base}/api/tasks`)).json();
+    assert.deepEqual(second.tasks.map((task) => task.id).sort(), first.tasks.map((task) => task.id).sort());
+    const stored = first.tasks.find((task) => task.id === taskId);
+    assert.equal(stored.dueOn, dueOn);
+    for (const day of [monthGrid(dueOn).find((item) => item === dueOn), weekGrid(dueOn).find((item) => item === dueOn)]) {
+      const placed = tasksOnDay(first.tasks, day).find((task) => task.id === taskId);
+      assert.equal(placed, stored);
+      assert.equal(placed.dueOn, dueOn);
+    }
+    assert.equal(taskTiming(stored, first.today), stored.dueOn < first.today ? "overdue" : "upcoming");
+
+    const movedTo = "2026-12-02";
+    const moved = await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { dueOn: movedTo });
+    assert.equal(moved.response.status, 200);
+    const again = await (await olivia.fetch(`${base}/api/tasks`)).json();
+    assert.equal(again.tasks.filter((task) => task.id === taskId).length, 1);
+    const shifted = again.tasks.find((task) => task.id === taskId);
+    assert.equal(tasksOnDay(again.tasks, dueOn).some((task) => task.id === taskId), false);
+    for (const day of [monthGrid(movedTo).find((item) => item === movedTo), weekGrid(movedTo).find((item) => item === movedTo)]) {
+      const placed = tasksOnDay(again.tasks, day).find((task) => task.id === taskId);
+      assert.equal(placed, shifted);
+      assert.equal(placed.dueOn, movedTo);
+    }
+
+    const page = readFileSync(new URL("../src/WorkQueue.jsx", import.meta.url), "utf8");
+    assert.match(page, /tasks=\{rows\}/);
+    assert.match(page, /tasksOnDay\(tasks, day\)/);
+    assert.match(page, /monthGrid\(anchor\)/);
+    assert.match(page, /weekGrid\(anchor\)/);
+    assert.equal(page.includes("/api/tasks/copy"), false);
   });
 });
