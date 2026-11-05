@@ -426,7 +426,7 @@ export function WorkQueue({ onOpenTask }) {
             </table>
           </div>
         ) : null}
-        {view === "table" && !rows.length ? <div className="empty-state"><b>{queue ? "No tasks match" : "Loading tasks…"}</b><p>{queue ? "Try another card or filter." : ""}</p></div> : null}
+        {view === "table" && !rows.length ? <div className="empty-state"><b>{queue ? "No tasks in this view" : "Loading tasks…"}</b><p>{queue ? "This firm has no stored task for the selected count, client, assignee, or date." : ""}</p></div> : null}
         <div className="table-footer"><span>Showing {rows.length} of {queue?.tasks.length || 0} tasks</span></div>
       </section>
       {creating && queue ? <TaskForm queue={queue} onClose={() => setCreating(false)} onSaved={(payload) => { setQueue(payload); setCreating(false); }} /> : null}

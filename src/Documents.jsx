@@ -192,7 +192,7 @@ export function Documents({ clientId }) {
         {!files.length ? (
           <div className="empty-state">
             <b>{library ? "No files match" : "Loading documents…"}</b>
-            <p>Upload a PDF, PNG, JPG, DOCX, XLSX, or CSV. Other types are rejected.</p>
+            <p>{library ? "No stored file matches this folder, category, tax year, status, or name. Upload accepts PDF, PNG, JPG, DOCX, XLSX, and CSV." : ""}</p>
           </div>
         ) : (
           <div className="table-wrap">
@@ -267,7 +267,7 @@ function ReviewQueue({ reviews, onChanged }) {
     <section className="card review-card">
       <div className="card-header">
         <div>
-          <h2>AI review</h2>
+          <h2>File suggestions</h2>
           <p>Suggestions are labeled AI-generated. Accepting stores the review. It does not post a journal, create a bill, or choose a tax treatment.</p>
         </div>
       </div>
