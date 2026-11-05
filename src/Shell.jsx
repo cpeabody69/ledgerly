@@ -22,6 +22,7 @@ import { Documents } from "./Documents.jsx";
 import { TaskNotices } from "./Notices.jsx";
 import { WorkQueue } from "./WorkQueue.jsx";
 import { Demo } from "./Demo.jsx";
+import { Integrations } from "./Integrations.jsx";
 
 const b = { createContext, useContext, useEffect, useMemo, useState };
 
@@ -233,11 +234,23 @@ function Ce({
       onSession
     } = O(),
     [inviteOpen, setInviteOpen] = (0, b.useState)(!1),
-    owner = session.user.role === `owner` || session.user.role === `administrator`;
-  return <div className="page"><D title={e} subtitle={{
+    [section, setSection] = (0, b.useState)(() => e === `Settings` && new URLSearchParams(window.location.search).get(`quickbooks`) ? `integrations` : `company`),
+    owner = session.user.role === `owner` || session.user.role === `administrator`,
+    integrations = e === `Settings` && section === `integrations`;
+  (0, b.useEffect)(() => {
+    if (e !== `Settings`) return undefined;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get(`quickbooks`) && !params.get(`quickbooks_code`)) return undefined;
+    params.delete(`quickbooks`);
+    params.delete(`quickbooks_code`);
+    const next = params.toString();
+    window.history.replaceState({}, ``, next ? `/?${next}` : `/`);
+    return undefined;
+  }, [e]);
+  return <div className="page"><D eyebrow={integrations ? `Settings` : undefined} title={integrations ? `Integrations` : e} subtitle={integrations ? `Connect QuickBooks Online for ${session.client.name}.` : {
       Banking: `Connect accounts and keep every balance reconciled.`,
       Settings: `Manage your company, team, and accounting preferences.`
-    }[e]} actions={<Cmp_w icon="plus" disabled={e === `Settings` && (!owner || session.subscription?.allowsWork === false || session.subscription?.seatsUsed >= session.subscription?.seatLimit)} onClick={() => e === `Banking` ? n(`Secure bank connection flow opened`) : owner ? setInviteOpen(!0) : undefined}>{e === `Banking` ? `Connect account` : `Invite team member`}</Cmp_w>} />{e === `Settings` ? <SubscriptionSetting session={session} onSession={onSession} /> : null}<E className="generic-card"><span className="round-icon blue"><C name={e === `Banking` ? `bank` : `settings`} size={26} /></span><h2>{e} workspace</h2><p>Your {e.toLowerCase()} tools are organized and ready to use.</p><div className="generic-grid">{[`Overview`, `Activity`, `Rules`].map((label, index) => <div key={label}><span><C name={[`grid`, `arrows`, `settings`][index]} /></span><b>{label}</b><small>View and manage {label.toLowerCase()}</small></div>)}</div></E>{e === `Settings` ? <E className="table-card team-card"><Cmp_re title="Team" subtitle={`People who can sign in to ${session.firm.name}. ${session.subscription ? `${session.subscription.seatsUsed} of ${session.subscription.seatLimit} seats are in use.` : ``}`} /><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>{session.members.map(member => <tr key={member.id}><td><strong>{member.name}</strong></td><td>{member.email}</td><td>{member.roleLabel}</td></tr>)}</tbody></table></E> : null}{e === `Settings` ? <ReceiptSetting session={session} onSession={onSession} /> : null}{inviteOpen ? <InviteModal onClose={() => setInviteOpen(!1)} onCreated={next => {
+    }[e]} actions={integrations ? null : <Cmp_w icon="plus" disabled={e === `Settings` && (!owner || session.subscription?.allowsWork === false || session.subscription?.seatsUsed >= session.subscription?.seatLimit)} onClick={() => e === `Banking` ? n(`Secure bank connection flow opened`) : owner ? setInviteOpen(!0) : undefined}>{e === `Banking` ? `Connect account` : `Invite team member`}</Cmp_w>} />{e === `Settings` ? <div className="tab-bar settings-tabs" role="tablist" aria-label="Settings"><button type="button" className={section === `company` ? `active` : ``} onClick={() => setSection(`company`)}>Company</button><button type="button" className={section === `integrations` ? `active` : ``} onClick={() => setSection(`integrations`)}>Integrations</button></div> : null}{integrations ? <Integrations key={session.client?.id} clientId={session.client?.id} canConnect={owner} /> : <>{e === `Settings` ? <SubscriptionSetting session={session} onSession={onSession} /> : null}<E className="generic-card"><span className="round-icon blue"><C name={e === `Banking` ? `bank` : `settings`} size={26} /></span><h2>{e} workspace</h2><p>Your {e.toLowerCase()} tools are organized and ready to use.</p><div className="generic-grid">{[`Overview`, `Activity`, `Rules`].map((label, index) => <div key={label}><span><C name={[`grid`, `arrows`, `settings`][index]} /></span><b>{label}</b><small>View and manage {label.toLowerCase()}</small></div>)}</div></E>{e === `Settings` ? <E className="table-card team-card"><Cmp_re title="Team" subtitle={`People who can sign in to ${session.firm.name}. ${session.subscription ? `${session.subscription.seatsUsed} of ${session.subscription.seatLimit} seats are in use.` : ``}`} /><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>{session.members.map(member => <tr key={member.id}><td><strong>{member.name}</strong></td><td>{member.email}</td><td>{member.roleLabel}</td></tr>)}</tbody></table></E> : null}{e === `Settings` ? <ReceiptSetting session={session} onSession={onSession} /> : null}</>}{inviteOpen ? <InviteModal onClose={() => setInviteOpen(!1)} onCreated={next => {
         setInviteOpen(!1);
         onSession(next);
       }} /> : null}</div>;

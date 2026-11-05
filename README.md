@@ -159,6 +159,14 @@ Sandbox test, after the API has restarted with those three values:
 6. Open Transactions. The imported lines are For review, with a suggested category and no journal. Approve one, or change the account and save. That is the post. The others stay off the trial balance.
 7. Choose Sync transactions. The same lines are not added again.
 
+## QuickBooks Online sandbox
+
+Settings → Integrations shows QuickBooks Online for the open client. Connect QuickBooks starts Intuit’s OAuth 2.0 authorization only when `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET`, `QUICKBOOKS_REDIRECT_URI`, and `QUICKBOOKS_ENV=sandbox` are set. If they are missing, or the environment is not `sandbox`, the button explains that and no company is marked connected. A connection is stored only after Intuit’s token endpoint returns an access token and a refresh token, and the callback includes a realm id. That realm id is the QuickBooks company id. The company name comes from the CompanyInfo response. The access token and refresh token are encrypted with the client secret and are not returned to the browser or written to logs.
+
+Disconnect clears the stored tokens and asks Intuit to revoke the refresh token. Sync calls the sandbox query API for customers, vendors, accounts, purchases (transactions), invoices, and payments. Ids Intuit returns are stored on this firm. A repeated id is rejected. Nothing from QuickBooks is posted into the client’s ledger, invoices, or bank activity. Webhooks require `QUICKBOOKS_WEBHOOK_VERIFIER`. The handler checks the `intuit-signature` HMAC and rejects a request that does not match. A valid webhook is recorded. It does not import records by itself.
+
+Copy the names from `.env.example`. For `npm run dev`, set `QUICKBOOKS_REDIRECT_URI` to `http://127.0.0.1:5173/api/quickbooks/callback` and register that same URI on the Intuit sandbox app. Restart the API after saving `.env`. This build does not include Intuit app credentials, and it cannot finish a live sandbox connect until those exist.
+
 ## Fictional demo
 
 The fictional demo is its own firm, Ledgerly Demo (fictional). Sign in as `avery@ledgerly-demo.example` / `ledgerly-demo`. That sign-in opens the three fictional businesses: a service studio, a retail shop, and a repair contractor. The sidebar names the firm under the open client, and Demo is in that firm’s sidebar. A paying firm such as Northstar or Harbor Street Advisors does not list Demo, and its sign-in opens that firm’s own clients.

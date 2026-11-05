@@ -27,6 +27,7 @@ import {
   updateStripeSeats,
 } from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
+import { beginQuickBooksConnect, disconnectQuickBooks, handleQuickBooksCallback, handleQuickBooksWebhook, readQuickBooks, syncQuickBooks } from "./quickbooks/index.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
@@ -187,6 +188,25 @@ async function handle(req, res, db, options) {
     const result = handleStripeWebhook(db, raw, req.headers["stripe-signature"] || "");
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/quickbooks/webhook") {
+    const raw = await readRawBody(req);
+    const result = handleQuickBooksWebhook(db, raw, req.headers["intuit-signature"] || "");
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/quickbooks/callback") {
+    const result = await handleQuickBooksCallback(db, url);
+    res.writeHead(302, {
+      location: result.redirect,
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+    });
+    res.end();
     return;
   }
 
@@ -1065,6 +1085,49 @@ async function handle(req, res, db, options) {
     }
     const result = disconnectPlaid(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/quickbooks" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = readQuickBooks(db, session);
+    send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/quickbooks/connect" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = beginQuickBooksConnect(db, session);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/quickbooks/disconnect" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await disconnectQuickBooks(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error, ...(result.payload || {}) });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/quickbooks/sync" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await syncQuickBooks(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error, ...(result.payload || {}) });
     else send(res, result.status, result.payload);
     return;
   }
