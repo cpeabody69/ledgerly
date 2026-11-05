@@ -1607,6 +1607,16 @@ background:var(--blue)}
 .notice-row>button:first-child{flex:1;display:flex;gap:8px;align-items:flex-start;background:transparent;border:0;text-align:left;padding:8px;cursor:pointer}
 .notice-row.read{opacity:.65}
 .notice-read{border:0;background:transparent;color:var(--blue);font-size:11px;cursor:pointer;white-space:nowrap}
+.demo-page{display:flex;flex-direction:column;gap:16px}
+.demo-heading h1{margin:0 0 6px;font-size:28px}
+.demo-heading p,.demo-note{color:var(--muted);margin:0}
+.demo-actions{display:flex;gap:8px}
+.demo-scenarios{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.demo-scenarios h2,.demo-result h2{margin:0 0 6px;font-size:16px}
+.demo-scenarios p{margin:0 0 8px}
+.demo-result ul{list-style:none;margin:12px 0 0;padding:0}
+.demo-result li{display:grid;grid-template-columns:52px 1fr;gap:2px 8px;padding:8px 0;border-top:1px solid var(--border)}
+.demo-result small{grid-column:2;color:var(--muted)}
 .profile-menu{
 width:220px}
 .profile-menu>span{
