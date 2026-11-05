@@ -66,7 +66,7 @@ function TaskForm({ queue, task, onClose, onSaved }) {
   const [status, setStatus] = useState(task?.status || "open");
   const [assigneeId, setAssigneeId] = useState(task?.assigneeId || "");
   const [clientId, setClientId] = useState(task?.clientId || queue.clients?.[0]?.id || "");
-  const [dueOn, setDueOn] = useState(task?.dueOn || queue.today || "");
+  const [dueOn, setDueOn] = useState(task ? (task.dueOn || "") : (queue.today || ""));
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -151,6 +151,59 @@ function TaskForm({ queue, task, onClose, onSaved }) {
   );
 }
 
+function TaskActivity({ task, onClose, onSaved }) {
+  const [comment, setComment] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  async function save(path, options) {
+    setPending(true);
+    setError("");
+    const response = await fetch(path, options);
+    const payload = await readJson(response);
+    setPending(false);
+    if (!response.ok || !payload.task) {
+      setError(payload.error || "The activity was not saved.");
+      return;
+    }
+    onSaved(payload);
+    setComment("");
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section className="modal task-activity" aria-labelledby="task-activity-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2 id="task-activity-title">{task.title}</h2>
+            <p>History stays with this firm. Internal notes stay off the client portal.</p>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        {task.history?.length ? (
+          <ol className="task-history">
+            {task.history.map((event) => (
+              <li key={event.id}>
+                <b>{event.actionLabel}</b>
+                <span>{[event.actorName, event.createdAtLabel].filter(Boolean).join(" · ")}</span>
+                {event.detail ? <p>{event.detail}</p> : null}
+              </li>
+            ))}
+          </ol>
+        ) : <p className="books-note">No activity stored yet.</p>}
+        <form className="task-comment" onSubmit={(event) => { event.preventDefault(); save(`/api/tasks/${task.id}/comments`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ body: comment }) }); }}>
+          <label className="field full"><span>Comment</span><textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} /></label>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          <div className="modal-footer">
+            {task.status === "completed" ? <Button variant="secondary" disabled={pending} onClick={() => save(`/api/tasks/${task.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "open" }) })}>Reopen</Button> : null}
+            <Button type="submit" disabled={pending || !comment.trim()}>{pending ? "Saving…" : "Add comment"}</Button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 export function WorkQueue({ onOpenTask }) {
   const [queue, setQueue] = useState(null);
   const [error, setError] = useState("");
@@ -164,6 +217,7 @@ export function WorkQueue({ onOpenTask }) {
   const [dueOn, setDueOn] = useState("");
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [activityId, setActivityId] = useState("");
 
   function load() {
     return fetch("/api/tasks").then(async (response) => {
@@ -311,6 +365,7 @@ export function WorkQueue({ onOpenTask }) {
                     <td>{task.dueOnLabel || "—"}</td>
                     <td className="queue-actions">
                       {task.target ? <button className="row-action" type="button" onClick={() => onOpenTask?.(task)}>Open</button> : null}
+                      <button className="row-action" type="button" onClick={() => setActivityId(task.id)}>Activity</button>
                       <button className="row-action" type="button" onClick={() => { setEditing(task); setCreating(false); }}>Edit</button>
                       {task.status !== "completed" ? <button className="row-action" type="button" onClick={() => complete(task)}>Complete</button> : null}
                     </td>
@@ -324,6 +379,13 @@ export function WorkQueue({ onOpenTask }) {
       </section>
       {creating && queue ? <TaskForm queue={queue} onClose={() => setCreating(false)} onSaved={(payload) => { setQueue(payload); setCreating(false); }} /> : null}
       {editing && queue ? <TaskForm queue={queue} task={editing} onClose={() => setEditing(null)} onSaved={(payload) => { setQueue(payload); setEditing(null); }} /> : null}
+      {activityId && queue?.tasks?.some((task) => task.id === activityId) ? (
+        <TaskActivity
+          task={queue.tasks.find((task) => task.id === activityId)}
+          onClose={() => setActivityId(null)}
+          onSaved={setQueue}
+        />
+      ) : null}
     </div>
   );
 }

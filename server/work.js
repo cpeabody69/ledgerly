@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS work_tasks (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS work_tasks_source ON work_tasks (firm_id, source_type, source_id);
 CREATE INDEX IF NOT EXISTS work_tasks_by_firm ON work_tasks (firm_id, status, due_on);
+CREATE TABLE IF NOT EXISTS work_task_events (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  actor_user_id TEXT NOT NULL REFERENCES users(id),
+  action TEXT NOT NULL CHECK (action IN ('create', 'assign', 'priority', 'status', 'due_date', 'comment', 'complete', 'reopen')),
+  detail TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS work_task_events_by_task ON work_task_events (firm_id, task_id, created_at);
 `;
 
 const MONTHS = [
@@ -51,6 +61,16 @@ const CATEGORY_LABEL = {
   invoice: "Overdue invoice",
   document: "Document request",
   general: "General",
+};
+const ACTION_LABEL = {
+  create: "Created",
+  assign: "Assigned",
+  priority: "Priority",
+  status: "Status",
+  due_date: "Due date",
+  comment: "Comment",
+  complete: "Completed",
+  reopen: "Reopened",
 };
 
 function fail(status, error) {
@@ -147,7 +167,44 @@ function targetFor(row) {
   return null;
 }
 
-function taskJson(row) {
+function recordEvent(db, session, taskId, action, detail = "") {
+  db.prepare(
+    `INSERT INTO work_task_events (id, firm_id, task_id, actor_user_id, action, detail, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(randomUUID(), session.firm_id, taskId, session.user_id, action, detail, new Date().toISOString());
+}
+
+function eventJson(row) {
+  return {
+    id: row.id,
+    action: row.action,
+    actionLabel: ACTION_LABEL[row.action] || row.action,
+    detail: row.detail || "",
+    actorId: row.actor_user_id,
+    actorName: row.actor_name || "",
+    createdAt: row.created_at,
+    createdAtLabel: formatWhen(row.created_at),
+  };
+}
+
+function historyMap(db, session) {
+  const rows = db.prepare(
+    `SELECT work_task_events.*, users.name AS actor_name
+     FROM work_task_events
+     LEFT JOIN users ON users.id = work_task_events.actor_user_id AND users.firm_id = work_task_events.firm_id
+     WHERE work_task_events.firm_id = ?
+     ORDER BY work_task_events.created_at, work_task_events.id`,
+  ).all(session.firm_id);
+  const map = new Map();
+  for (const row of rows) {
+    const list = map.get(row.task_id) || [];
+    list.push(eventJson(row));
+    map.set(row.task_id, list);
+  }
+  return map;
+}
+
+function taskJson(row, history = []) {
   return {
     id: row.id,
     title: row.title,
@@ -174,6 +231,7 @@ function taskJson(row) {
     completedAtLabel: formatWhen(row.completed_at || ""),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    history,
   };
 }
 
@@ -236,6 +294,7 @@ function insertSource(db, session, source) {
       now,
       now,
     );
+    recordEvent(db, session, id, "create", source.title);
   } catch (error) {
     if (!String(error.message || error).includes("UNIQUE")) throw error;
   }
@@ -325,7 +384,8 @@ function syncSources(db, session) {
 
 function queuePayload(db, session, user, taskId = "") {
   syncSources(db, session);
-  const tasks = taskRows(db, session, user).map(taskJson);
+  const history = historyMap(db, session);
+  const tasks = taskRows(db, session, user).map((row) => taskJson(row, history.get(row.id) || []));
   const counts = taskCounts(tasks);
   const members = db.prepare(
     "SELECT id, name, role FROM users WHERE firm_id = ? ORDER BY name",
@@ -428,6 +488,13 @@ export function createWorkTask(db, session, input) {
     now,
     now,
   );
+  recordEvent(db, session, id, "create", title);
+  if (assigneeId) {
+    const assignee = memberInFirm(db, session, assigneeId);
+    recordEvent(db, session, id, "assign", assignee ? `Assigned to ${assignee.name}` : "Assigned");
+  }
+  if (status === "completed") recordEvent(db, session, id, "complete", "");
+  else if (status !== "open") recordEvent(db, session, id, "status", STATUS_LABEL[status]);
   return { ...queuePayload(db, session, user, id), status: 201 };
 }
 
@@ -486,6 +553,17 @@ export function updateWorkTask(db, session, taskId, input) {
          client_id = ?, completed_by_user_id = ?, completed_at = ?, updated_at = ?
      WHERE id = ? AND firm_id = ?`,
   ).run(title, detail, notes, category, status, priority, assigneeId, dueOn, clientId, completedBy, completedAt, now, existing.id, session.firm_id);
+  if ((assigneeId || "") !== (existing.assignee_user_id || "")) {
+    const assignee = assigneeId ? memberInFirm(db, session, assigneeId) : null;
+    recordEvent(db, session, existing.id, "assign", assignee ? `Assigned to ${assignee.name}` : "Unassigned");
+  }
+  if (priority !== existing.priority) recordEvent(db, session, existing.id, "priority", PRIORITY_LABEL[priority] || priority);
+  if ((dueOn || "") !== (existing.due_on || "")) recordEvent(db, session, existing.id, "due_date", dueOn ? formatDay(dueOn) : "Cleared");
+  if (status !== existing.status) {
+    if (status === "completed") recordEvent(db, session, existing.id, "complete", "");
+    else if (existing.status === "completed") recordEvent(db, session, existing.id, "reopen", STATUS_LABEL[status] || status);
+    else recordEvent(db, session, existing.id, "status", STATUS_LABEL[status] || status);
+  }
   return queuePayload(db, session, user, existing.id);
 }
 
@@ -502,6 +580,68 @@ export function completeWorkTask(db, session, taskId) {
        SET status = 'completed', completed_by_user_id = ?, completed_at = ?, updated_at = ?
        WHERE id = ? AND firm_id = ?`,
     ).run(user.id, now, now, existing.id, session.firm_id);
+    recordEvent(db, session, existing.id, "complete", "");
   }
   return queuePayload(db, session, user, existing.id);
+}
+
+export function commentWorkTask(db, session, taskId, input) {
+  ensureWork(db);
+  const user = actor(db, session);
+  if (!user) return fail(401, "Sign in required.");
+  const existing = loadTask(db, session, user, taskId);
+  if (!existing) return fail(404, "Task not found.");
+  const text = String(input?.body || "").trim();
+  if (!text || text.length > 2000) return fail(400, "Enter a comment.");
+  recordEvent(db, session, existing.id, "comment", text);
+  return queuePayload(db, session, user, existing.id);
+}
+
+export function readWorkTask(db, session, taskId) {
+  ensureWork(db);
+  const user = actor(db, session);
+  if (!user) return fail(401, "Sign in required.");
+  const result = queuePayload(db, session, user, taskId);
+  if (!result.payload.task) return fail(404, "Task not found.");
+  return result;
+}
+
+function clientTaskCard(task) {
+  return {
+    id: task.id,
+    title: task.title,
+    detail: task.detail,
+    status: task.status,
+    statusLabel: task.statusLabel,
+    priority: task.priority,
+    priorityLabel: task.priorityLabel,
+    dueOn: task.dueOn,
+    dueOnLabel: task.dueOnLabel,
+    assigneeName: task.assigneeName,
+    categoryLabel: task.categoryLabel,
+  };
+}
+
+export function readClientTasks(db, session, clientId) {
+  ensureWork(db);
+  const user = actor(db, session);
+  if (!user) return fail(401, "Sign in required.");
+  const client = clientInFirm(db, session, clientId);
+  if (!client) return fail(404, "Client not found.");
+  const queue = queuePayload(db, session, user);
+  const today = queue.payload.today;
+  const tasks = queue.payload.tasks.filter((task) => task.clientId === client.id).map(clientTaskCard);
+  const overdueIds = new Set(tasks.filter((task) => task.status !== "completed" && task.dueOn && task.dueOn < today).map((task) => task.id));
+  return {
+    status: 200,
+    payload: {
+      clientId: client.id,
+      clientName: client.name,
+      today,
+      open: tasks.filter((task) => task.status === "open" && !overdueIds.has(task.id)),
+      overdue: tasks.filter((task) => overdueIds.has(task.id)),
+      waiting: tasks.filter((task) => task.status === "waiting_on_client" && !overdueIds.has(task.id)),
+      completed: tasks.filter((task) => task.status === "completed"),
+    },
+  };
 }
