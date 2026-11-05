@@ -226,7 +226,7 @@ export function UpcomingBills({ clientId, onOpen }) {
     <section className="card">
       <div className="card-header">
         <div><h2>Upcoming bills</h2></div>
-        <button className="text-button" type="button" onClick={onOpen}>View all</button>
+        <button className="text-button" type="button" onClick={onOpen}>Expenses</button>
       </div>
       {expenses && !bills.length ? <p className="books-note">No bills are waiting.</p> : null}
       {bills.map((bill) => {
@@ -353,7 +353,7 @@ export function Expenses({ clientId, onCreate }) {
         {payload && !filtered.length ? (
           <div className="empty-state">
             <b>{expenses.length ? "No matching expenses" : "No bills or payments yet"}</b>
-            <p>{expenses.length ? "Try a different search." : "Save an expense to post it for this client."}</p>
+            <p>{expenses.length ? "No vendor, account, amount, or receipt matches that search." : "Save an expense to post it for this client."}</p>
           </div>
         ) : (
           <div className="table-wrap">

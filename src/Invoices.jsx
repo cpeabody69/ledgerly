@@ -212,7 +212,7 @@ export function OutstandingInvoices({ clientId, onOpen }) {
     <section className="card">
       <div className="card-header">
         <div><h2>Outstanding invoices</h2></div>
-        <button className="text-button" type="button" onClick={onOpen}>View all</button>
+        <button className="text-button" type="button" onClick={onOpen}>Invoices</button>
       </div>
       <div className="invoice-total">
         <div><span>Total outstanding</span><strong>{metrics ? metrics.outstanding : "—"}</strong></div>
@@ -307,7 +307,7 @@ export function Invoices({ clientId, onCreate, initialInvoiceId = null }) {
       <div className="page-header">
         <div>
           <h1>Invoices</h1>
-          <p>Create invoices, track payments, and manage your customers.</p>
+          <p>Drafts, open balances, and recorded payments for this client.</p>
         </div>
         <div className="header-actions">
           <Button icon="plus" onClick={onCreate}>Create invoice</Button>
@@ -363,7 +363,7 @@ export function Invoices({ clientId, onCreate, initialInvoiceId = null }) {
             </tbody>
           </table>
         ) : (
-          <div className="empty-state"><b>{payload ? "No invoices found" : "Loading invoices…"}</b><p>{payload ? "Save a draft, or change the search, status, or date range." : ""}</p></div>
+          <div className="empty-state"><b>{payload ? "No invoices in this view" : "Loading invoices…"}</b><p>{payload ? `Nothing matches this search, status, and date range. Create invoice saves a draft for this client.` : ""}</p></div>
         )}
         <div className="table-footer">
           <span>Showing {from}–{to} of {filtered.length} invoices</span>

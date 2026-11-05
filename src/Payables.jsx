@@ -266,7 +266,7 @@ function BillList({ bills, total, query, onQuery, onOpen }) {
       {!bills.length ? (
         <div className="empty-state">
           <b>{total ? "No matching bills" : "No bills yet"}</b>
-          <p>{total ? "Try a different search." : "A new bill starts as a draft and can be edited until it is posted."}</p>
+          <p>{total ? "No vendor, invoice number, status, or amount matches that search." : "A new bill starts as a draft and can be edited until it is posted."}</p>
         </div>
       ) : (
         <div className="table-wrap">
@@ -304,7 +304,7 @@ function VendorList({ vendors, total, query, onQuery, onOpen }) {
       {!vendors.length ? (
         <div className="empty-state">
           <b>{total ? "No matching vendors" : "No vendors yet"}</b>
-          <p>{total ? "Try a different search." : "Add a vendor before entering a bill."}</p>
+          <p>{total ? "No vendor name, email, or contact matches that search." : "Add a vendor before entering a bill."}</p>
         </div>
       ) : (
         <div className="table-wrap">
