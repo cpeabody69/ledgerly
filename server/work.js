@@ -33,6 +33,18 @@ CREATE TABLE IF NOT EXISTS work_task_events (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS work_task_events_by_task ON work_task_events (firm_id, task_id, created_at);
+CREATE TABLE IF NOT EXISTS work_notices (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL REFERENCES firms(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  task_id TEXT NOT NULL REFERENCES work_tasks(id),
+  kind TEXT NOT NULL CHECK (kind IN ('assigned', 'reassigned', 'completed', 'overdue')),
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS work_notices_by_user ON work_notices (firm_id, user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS work_notices_overdue ON work_notices (firm_id, task_id, user_id) WHERE kind = 'overdue';
 `;
 
 const MONTHS = [
@@ -165,6 +177,50 @@ function targetFor(row) {
   if (row.source_type === "invoice") return { screen: "Invoices", invoiceId: row.source_id };
   if (row.source_type === "document_request") return { screen: "Clients", requestId: row.source_id };
   return null;
+}
+
+function insertNotice(db, session, userId, taskId, kind, title) {
+  if (!userId) return;
+  try {
+    db.prepare(
+      `INSERT INTO work_notices (id, firm_id, user_id, task_id, kind, title, created_at, read_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+    ).run(randomUUID(), session.firm_id, userId, taskId, kind, title, new Date().toISOString());
+  } catch (error) {
+    if (kind === "overdue" && String(error.message || error).includes("UNIQUE")) return;
+    throw error;
+  }
+}
+
+function notifyAssignment(db, session, taskId, title, previousAssigneeId, assigneeId) {
+  if (!assigneeId || assigneeId === (previousAssigneeId || null)) return;
+  const kind = previousAssigneeId ? "reassigned" : "assigned";
+  insertNotice(db, session, assigneeId, taskId, kind, `${kind === "reassigned" ? "Reassigned" : "Assigned"}: ${title}`);
+}
+
+function notifyCompleted(db, session, taskId, title, assigneeId) {
+  insertNotice(db, session, assigneeId, taskId, "completed", `Completed: ${title}`);
+}
+
+function syncOverdueNotices(db, session) {
+  const today = localDate();
+  const rows = db.prepare(
+    `SELECT id, title, assignee_user_id FROM work_tasks
+     WHERE firm_id = ? AND assignee_user_id IS NOT NULL AND status != 'completed' AND due_on != '' AND due_on < ?`,
+  ).all(session.firm_id, today);
+  for (const row of rows) insertNotice(db, session, row.assignee_user_id, row.id, "overdue", `Overdue: ${row.title}`);
+}
+
+function noticeJson(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    taskId: row.task_id,
+    createdAt: row.created_at,
+    createdAtLabel: formatWhen(row.created_at),
+    readAt: row.read_at || "",
+  };
 }
 
 function recordEvent(db, session, taskId, action, detail = "") {
@@ -493,8 +549,12 @@ export function createWorkTask(db, session, input) {
     const assignee = memberInFirm(db, session, assigneeId);
     recordEvent(db, session, id, "assign", assignee ? `Assigned to ${assignee.name}` : "Assigned");
   }
-  if (status === "completed") recordEvent(db, session, id, "complete", "");
-  else if (status !== "open") recordEvent(db, session, id, "status", STATUS_LABEL[status]);
+  notifyAssignment(db, session, id, title, null, assigneeId);
+  if (status === "completed") {
+    recordEvent(db, session, id, "complete", "");
+    notifyCompleted(db, session, id, title, assigneeId);
+  } else if (status !== "open") recordEvent(db, session, id, "status", STATUS_LABEL[status]);
+  syncOverdueNotices(db, session);
   return { ...queuePayload(db, session, user, id), status: 201 };
 }
 
@@ -564,6 +624,9 @@ export function updateWorkTask(db, session, taskId, input) {
     else if (existing.status === "completed") recordEvent(db, session, existing.id, "reopen", STATUS_LABEL[status] || status);
     else recordEvent(db, session, existing.id, "status", STATUS_LABEL[status] || status);
   }
+  notifyAssignment(db, session, existing.id, title, existing.assignee_user_id, assigneeId);
+  if (status === "completed" && existing.status !== "completed") notifyCompleted(db, session, existing.id, title, assigneeId);
+  syncOverdueNotices(db, session);
   return queuePayload(db, session, user, existing.id);
 }
 
@@ -581,6 +644,7 @@ export function completeWorkTask(db, session, taskId) {
        WHERE id = ? AND firm_id = ?`,
     ).run(user.id, now, now, existing.id, session.firm_id);
     recordEvent(db, session, existing.id, "complete", "");
+    notifyCompleted(db, session, existing.id, existing.title, existing.assignee_user_id);
   }
   return queuePayload(db, session, user, existing.id);
 }
@@ -644,4 +708,34 @@ export function readClientTasks(db, session, clientId) {
       completed: tasks.filter((task) => task.status === "completed"),
     },
   };
+}
+
+export function readNotices(db, session) {
+  ensureWork(db);
+  const user = actor(db, session);
+  if (!user) return fail(401, "Sign in required.");
+  syncOverdueNotices(db, session);
+  const notices = db.prepare(
+    "SELECT * FROM work_notices WHERE firm_id = ? AND user_id = ? ORDER BY created_at DESC, id",
+  ).all(session.firm_id, user.id).map(noticeJson);
+  return { status: 200, payload: { notices } };
+}
+
+export function markNoticeRead(db, session, noticeId) {
+  ensureWork(db);
+  const user = actor(db, session);
+  if (!user) return fail(401, "Sign in required.");
+  const existing = db.prepare(
+    "SELECT * FROM work_notices WHERE id = ? AND firm_id = ? AND user_id = ?",
+  ).get(noticeId, session.firm_id, user.id);
+  if (!existing) return fail(404, "Notice not found.");
+  if (!existing.read_at) {
+    db.prepare("UPDATE work_notices SET read_at = ? WHERE id = ? AND firm_id = ? AND user_id = ?").run(
+      new Date().toISOString(),
+      existing.id,
+      session.firm_id,
+      user.id,
+    );
+  }
+  return readNotices(db, session);
 }

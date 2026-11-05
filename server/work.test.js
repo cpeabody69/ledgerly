@@ -374,3 +374,90 @@ test("a task due on a date appears that day in both calendar views, and moving t
     assert.equal(page.includes("/api/tasks/copy"), false);
   });
 });
+
+test("assigning writes one notice, a second save does not repeat it, and marking it read persists", async () => {
+  await withServer(async (base) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const created = await sendJson(olivia, base, "POST", "/api/tasks", {
+      title: "Notice the filing",
+      assigneeId: signedIn.user.id,
+      dueOn: "2026-12-15",
+    });
+    assert.equal(created.response.status, 201);
+    const taskId = created.body.task.id;
+    const assigned = (body) => body.notices.filter((notice) => notice.kind === "assigned" && notice.taskId === taskId);
+    const first = await (await olivia.fetch(`${base}/api/notices`)).json();
+    assert.equal(assigned(first).length, 1);
+    assert.equal(assigned(first)[0].title, "Assigned: Notice the filing");
+
+    await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, {
+      title: "Notice the filing again",
+      assigneeId: signedIn.user.id,
+    });
+    const second = await (await olivia.fetch(`${base}/api/notices`)).json();
+    assert.equal(assigned(second).length, 1);
+
+    await sendJson(olivia, base, "POST", `/api/tasks/${taskId}/comments`, { body: "A comment is not a notice" });
+    const afterComment = await (await olivia.fetch(`${base}/api/notices`)).json();
+    assert.equal(assigned(afterComment).length, 1);
+    assert.equal(afterComment.notices.some((notice) => notice.title.includes("comment")), false);
+
+    const noticeId = assigned(afterComment)[0].id;
+    const marked = await sendJson(olivia, base, "POST", `/api/notices/${noticeId}/read`);
+    assert.equal(marked.response.status, 200);
+    const read = marked.body.notices.find((notice) => notice.id === noticeId);
+    assert.ok(read.readAt);
+    const persisted = await (await olivia.fetch(`${base}/api/notices`)).json();
+    assert.equal(persisted.notices.find((notice) => notice.id === noticeId).readAt, read.readAt);
+
+    const late = await sendJson(olivia, base, "POST", "/api/tasks", {
+      title: "Late notice",
+      assigneeId: signedIn.user.id,
+      dueOn: "2020-01-02",
+    });
+    const overdueOnce = await (await olivia.fetch(`${base}/api/notices`)).json();
+    const overdue = (body) => body.notices.filter((notice) => notice.kind === "overdue" && notice.taskId === late.body.task.id);
+    assert.equal(overdue(overdueOnce).length, 1);
+    const overdueTwice = await (await olivia.fetch(`${base}/api/notices`)).json();
+    assert.equal(overdue(overdueTwice).length, 1);
+
+    const invited = await sendJson(olivia, base, "POST", "/api/members", {
+      name: "Sam Lee",
+      email: "sam@northstarcreative.co",
+      role: "staff",
+      password: "ledgerly-staff",
+    });
+    const samId = invited.body.members.find((member) => member.email === "sam@northstarcreative.co").id;
+    await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { assigneeId: samId });
+    await sendJson(olivia, base, "PATCH", `/api/tasks/${taskId}`, { assigneeId: samId, detail: "Same assignment" });
+    const sam = cookieJar();
+    await signIn(sam, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    const samNotices = await (await sam.fetch(`${base}/api/notices`)).json();
+    assert.equal(samNotices.notices.filter((notice) => notice.kind === "reassigned" && notice.taskId === taskId).length, 1);
+    await sendJson(olivia, base, "POST", `/api/tasks/${taskId}/complete`);
+    await sendJson(olivia, base, "POST", `/api/tasks/${taskId}/complete`);
+    const completed = await (await sam.fetch(`${base}/api/notices`)).json();
+    assert.equal(completed.notices.filter((notice) => notice.kind === "completed" && notice.taskId === taskId).length, 1);
+
+    const jordan = cookieJar();
+    await signIn(jordan, base, firms.harbor.owner);
+    const foreign = await jordan.fetch(`${base}/api/notices`);
+    const foreignText = await foreign.text();
+    assert.equal(foreign.status, 200);
+    assert.equal(JSON.parse(foreignText).notices.length, 0);
+    assert.equal(foreignText.includes("Notice the filing"), false);
+    const hidden = await jordan.fetch(`${base}/api/notices/${noticeId}/read`, { method: "POST" });
+    assert.equal(hidden.status, 404);
+
+    const casey = cookieJar();
+    await signIn(casey, base, firms.northstar.portal);
+    const portalNotices = await casey.fetch(`${base}/api/notices`);
+    const portalNoticeText = await portalNotices.text();
+    assert.equal(portalNotices.status, 404);
+    assert.equal(portalNoticeText.includes("Notice the filing"), false);
+    const portal = await casey.fetch(`${base}/api/portal`);
+    const portalText = await portal.text();
+    assert.equal(portalText.includes("Notice the filing"), false);
+  });
+});

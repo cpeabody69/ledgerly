@@ -1602,6 +1602,11 @@ background:#d99a42}
 background:#d56565}
 .notice-dot.blue{
 background:var(--blue)}
+.notification-menu{width:320px;max-height:420px;overflow:auto}
+.notice-row{display:flex;align-items:center;gap:6px;padding-right:8px}
+.notice-row>button:first-child{flex:1;display:flex;gap:8px;align-items:flex-start;background:transparent;border:0;text-align:left;padding:8px;cursor:pointer}
+.notice-row.read{opacity:.65}
+.notice-read{border:0;background:transparent;color:var(--blue);font-size:11px;cursor:pointer;white-space:nowrap}
 .profile-menu{
 width:220px}
 .profile-menu>span{
