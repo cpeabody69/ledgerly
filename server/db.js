@@ -17,6 +17,7 @@ import { ensureAssistant } from "./assistant.js";
 import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscription.js";
 import { ensurePlaid } from "./plaid.js";
 import { ensurePayables } from "./payables.js";
+import { ensureDemoTables } from "./demo.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -131,6 +132,7 @@ export function openDatabase(dbPath) {
   ensurePlaid(db);
   ensurePayables(db);
   ensureWork(db);
+  ensureDemoTables(db);
   return db;
 }
 
@@ -192,13 +194,13 @@ function memberJson(row) {
 export function sessionPayload(db, session) {
   if (session.portal) return portalPayload(db, session);
   const user = db.prepare("SELECT id, firm_id, email, name, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
-  const firm = db.prepare("SELECT id, name, require_receipt FROM firms WHERE id = ?").get(session.firm_id);
+  const firm = db.prepare("SELECT id, name, require_receipt, demo FROM firms WHERE id = ?").get(session.firm_id);
   const clients = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id).map(clientJson);
   const selected = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(session.selected_client_id, session.firm_id);
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
   return {
     user: memberJson(user),
-    firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1 },
+    firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1, demo: Number(firm.demo) === 1 },
     clients,
     client: selected ? clientJson(selected) : null,
     members,

@@ -249,7 +249,7 @@ export function updateReceiptSetting(db, session, input) {
   db.prepare(
     "INSERT INTO audit_events (id, firm_id, actor_user_id, action, client_id, entity_type, entity_id, created_at) VALUES (?, ?, ?, 'firm.receipt_setting', NULL, 'firm', ?, ?)",
   ).run(randomUUID(), session.firm_id, session.user_id, session.firm_id, new Date().toISOString());
-  const firm = db.prepare("SELECT id, name, require_receipt FROM firms WHERE id = ?").get(session.firm_id);
+  const firm = db.prepare("SELECT id, name, require_receipt, demo FROM firms WHERE id = ?").get(session.firm_id);
   return {
     status: 200,
     payload: {
@@ -257,6 +257,7 @@ export function updateReceiptSetting(db, session, input) {
         id: firm.id,
         name: firm.name,
         requireReceipt: firm.require_receipt === 1,
+        demo: Number(firm.demo) === 1,
       },
     },
   };
