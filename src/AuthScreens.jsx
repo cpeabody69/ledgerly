@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { SubscribeGate } from "./Subscription.jsx";
 
-const TERMS = "I agree to the Ledgerly Terms of Use for this workspace. This records acceptance for the account. It is not a legal opinion or a signed engagement letter.";
 const PRIVACY = "I agree to the Ledgerly Privacy notice. This build stores the account in its database. It does not send the address to an email provider.";
 
-function Brand() {
+export function Brand() {
   return (
     <div className="sign-in-brand">
       <span className="brand-mark">
@@ -226,7 +225,9 @@ function Register({ go }) {
             </Field>
             <label className="auth-check">
               <input type="checkbox" checked={form.acceptTerms} onChange={(event) => set("acceptTerms", event.target.checked)} />
-              <span>{TERMS}</span>
+              <span>
+                I agree to the Ledgerly <a href="/terms" onClick={(event) => { event.preventDefault(); event.stopPropagation(); go("/terms"); }}>Terms of Service</a> for this workspace. This records acceptance for the account. It is not a legal opinion or a signed engagement letter.
+              </span>
             </label>
             <label className="auth-check">
               <input type="checkbox" checked={form.acceptPrivacy} onChange={(event) => set("acceptPrivacy", event.target.checked)} />
