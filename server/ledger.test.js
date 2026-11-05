@@ -331,14 +331,9 @@ test("a staff user can post to the open client and not to another client's books
   await withServer(async (base) => {
     const olivia = cookieJar();
     const signedIn = await signIn(olivia, base, firms.northstar.owner);
-    const invited = await olivia.fetch(`${base}/api/members`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Sam Lee", email: "sam@northstarcreative.co", role: "staff", password: "ledgerly-staff" }),
-    });
-    assert.equal(invited.status, 201);
+    const samAccount = firms.northstar.members.find((member) => member.email === "sam@northstarcreative.co");
     const sam = cookieJar();
-    const staff = await signIn(sam, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    const staff = await signIn(sam, base, samAccount);
     assert.equal(staff.body.user.role, "staff");
     assert.equal(staff.body.client.id, signedIn.body.client.id);
     const ledger = await (await sam.fetch(`${base}/api/ledger`)).json();

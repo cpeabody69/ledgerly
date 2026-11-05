@@ -142,7 +142,7 @@ function seedIfEmpty(db) {
   const now = new Date().toISOString();
   const insertFirm = db.prepare("INSERT INTO firms (id, name, created_at) VALUES (?, ?, ?)");
   const insertUser = db.prepare(
-    "INSERT INTO users (id, firm_id, email, name, role, password_hash, invited_by, created_at) VALUES (?, ?, ?, ?, 'owner', ?, NULL, ?)",
+    "INSERT INTO users (id, firm_id, email, name, role, password_hash, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const insertClient = db.prepare(
     "INSERT INTO clients (id, firm_id, name, legal_name, initials, industry, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -151,15 +151,30 @@ function seedIfEmpty(db) {
   try {
     for (const firm of Object.values(firms)) {
       const firmId = randomUUID();
+      const ownerId = randomUUID();
       insertFirm.run(firmId, firm.name, now);
       insertUser.run(
-        randomUUID(),
+        ownerId,
         firmId,
         firm.owner.email.toLowerCase(),
         firm.owner.name,
+        "owner",
         hashPassword(firm.owner.password),
+        null,
         now,
       );
+      for (const member of firm.members || []) {
+        insertUser.run(
+          randomUUID(),
+          firmId,
+          member.email.toLowerCase(),
+          member.name,
+          member.role,
+          hashPassword(member.password),
+          ownerId,
+          now,
+        );
+      }
       firm.clients.forEach((client, index) => {
         insertClient.run(randomUUID(), firmId, client[0], client[1], client[2], client[3], index, now);
       });

@@ -1,12 +1,32 @@
-// Synthetic firm accounts. These are not real people or real books.
+// Synthetic people. Each person has their own password. These are not real people or real books.
 export const firms = {
   northstar: {
     name: "Northstar",
     owner: {
       email: "olivia@northstarcreative.co",
-      password: "ledgerly-northstar",
+      password: "ledgerly-olivia",
       name: "Olivia Martin",
     },
+    members: [
+      {
+        email: "morgan@northstarcreative.co",
+        password: "ledgerly-morgan",
+        name: "Morgan Hale",
+        role: "manager",
+      },
+      {
+        email: "sam@northstarcreative.co",
+        password: "ledgerly-sam",
+        name: "Sam Lee",
+        role: "staff",
+      },
+      {
+        email: "riley@northstarcreative.co",
+        password: "ledgerly-riley",
+        name: "Riley Chen",
+        role: "staff",
+      },
+    ],
     clients: [
       ["Northstar Creative", "Northstar Creative LLC", "NC", "Advertising & design"],
       ["Haven Coffee Roasters", "Haven Coffee Roasters", "HC", "Food & beverage"],
@@ -15,7 +35,7 @@ export const firms = {
     ],
     portal: {
       email: "casey@brightline.example",
-      password: "ledgerly-client",
+      password: "ledgerly-casey",
       name: "Casey Nguyen",
       clientName: "Brightline Labs",
     },
@@ -24,7 +44,7 @@ export const firms = {
     name: "Harbor Street Advisors",
     owner: {
       email: "jordan@harborstreet.example",
-      password: "ledgerly-harbor",
+      password: "ledgerly-jordan",
       name: "Jordan Hale",
     },
     clients: [
@@ -33,7 +53,7 @@ export const firms = {
     ],
     portal: {
       email: "rowan@cedar.example",
-      password: "ledgerly-client",
+      password: "ledgerly-rowan",
       name: "Rowan Ellis",
       clientName: "Cedar & Pine Goods",
     },
