@@ -79,27 +79,14 @@ test("two staff log time, firm-wide roles can open it, and a draft invoice match
     assert.equal(work.response.status, 201);
     assert.equal(work.body.work.hourlyRateCents, 10000);
 
-    for (const member of [
-      ["Sam Lee", "sam@northstarcreative.co", "staff"],
-      ["Riley Chen", "riley@northstarcreative.co", "staff"],
-      ["Morgan Hale", "morgan@northstarcreative.co", "manager"],
-    ]) {
-      const invited = await sendJson(olivia, base, "POST", "/api/members", {
-        name: member[0],
-        email: member[1],
-        role: member[2],
-        password: "ledgerly-staff",
-      });
-      assert.equal(invited.response.status, 201);
-    }
-
+    const person = (email) => firms.northstar.members.find((member) => member.email === email);
     const sam = cookieJar();
-    const samSession = await signIn(sam, base, { email: "sam@northstarcreative.co", password: "ledgerly-staff" });
+    const samSession = await signIn(sam, base, person("sam@northstarcreative.co"));
     assert.equal(samSession.user.role, "staff");
     const riley = cookieJar();
-    await signIn(riley, base, { email: "riley@northstarcreative.co", password: "ledgerly-staff" });
+    await signIn(riley, base, person("riley@northstarcreative.co"));
     const morgan = cookieJar();
-    const morganSession = await signIn(morgan, base, { email: "morgan@northstarcreative.co", password: "ledgerly-staff" });
+    const morganSession = await signIn(morgan, base, person("morgan@northstarcreative.co"));
     assert.equal(morganSession.user.role, "manager");
 
     const rejectedHours = await sendJson(sam, base, "POST", "/api/time", {

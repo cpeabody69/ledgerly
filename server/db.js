@@ -17,6 +17,7 @@ import { ensureAssistant } from "./assistant.js";
 import { ensureSubscription, openSeatError, subscriptionSummary } from "./subscription.js";
 import { ensurePlaid } from "./plaid.js";
 import { ensurePayables } from "./payables.js";
+import { ensureDemoTables } from "./demo.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firms (
@@ -131,6 +132,7 @@ export function openDatabase(dbPath) {
   ensurePlaid(db);
   ensurePayables(db);
   ensureWork(db);
+  ensureDemoTables(db);
   return db;
 }
 
@@ -140,7 +142,7 @@ function seedIfEmpty(db) {
   const now = new Date().toISOString();
   const insertFirm = db.prepare("INSERT INTO firms (id, name, created_at) VALUES (?, ?, ?)");
   const insertUser = db.prepare(
-    "INSERT INTO users (id, firm_id, email, name, role, password_hash, invited_by, created_at) VALUES (?, ?, ?, ?, 'owner', ?, NULL, ?)",
+    "INSERT INTO users (id, firm_id, email, name, role, password_hash, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const insertClient = db.prepare(
     "INSERT INTO clients (id, firm_id, name, legal_name, initials, industry, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -149,15 +151,30 @@ function seedIfEmpty(db) {
   try {
     for (const firm of Object.values(firms)) {
       const firmId = randomUUID();
+      const ownerId = randomUUID();
       insertFirm.run(firmId, firm.name, now);
       insertUser.run(
-        randomUUID(),
+        ownerId,
         firmId,
         firm.owner.email.toLowerCase(),
         firm.owner.name,
+        "owner",
         hashPassword(firm.owner.password),
+        null,
         now,
       );
+      for (const member of firm.members || []) {
+        insertUser.run(
+          randomUUID(),
+          firmId,
+          member.email.toLowerCase(),
+          member.name,
+          member.role,
+          hashPassword(member.password),
+          ownerId,
+          now,
+        );
+      }
       firm.clients.forEach((client, index) => {
         insertClient.run(randomUUID(), firmId, client[0], client[1], client[2], client[3], index, now);
       });
@@ -192,13 +209,13 @@ function memberJson(row) {
 export function sessionPayload(db, session) {
   if (session.portal) return portalPayload(db, session);
   const user = db.prepare("SELECT id, firm_id, email, name, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
-  const firm = db.prepare("SELECT id, name, require_receipt FROM firms WHERE id = ?").get(session.firm_id);
+  const firm = db.prepare("SELECT id, name, require_receipt, demo FROM firms WHERE id = ?").get(session.firm_id);
   const clients = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id).map(clientJson);
   const selected = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(session.selected_client_id, session.firm_id);
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
   return {
     user: memberJson(user),
-    firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1 },
+    firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1, demo: Number(firm.demo) === 1 },
     clients,
     client: selected ? clientJson(selected) : null,
     members,
