@@ -106,7 +106,7 @@ The Tax screen reads the open client’s books for the current season. The check
 
 ## Assistant
 
-Explore Ledger AI opens an assistant for the open client. It reads that client’s statements, uncategorized lines, missing documents, and tax checklist, and it can draft a journal. The draft stays off the ledger until a person posts it with New journal entry. Suggestions are marked AI-generated and carry a confidence indicator. Each recommendation and each human approval is stored.
+Ask about these books opens an assistant for the open client. It reads that client’s statements, uncategorized lines, missing documents, and tax checklist, and it can draft a journal. The draft stays off the ledger until a person posts it with New journal entry. Suggestions are marked AI-generated and carry a confidence indicator. Each recommendation and each human approval is stored.
 
 The model provider is configuration. Set `LEDGERLY_MODEL_PROVIDER`, `LEDGERLY_MODEL_API_KEY`, and `LEDGERLY_MODEL_URL`. `LEDGERLY_MODEL_NAME` selects the model; when it is empty, the request asks the endpoint for its reasoning model, with structured output and the read-only tools. No key means the same tools run on the stored books and the assistant says the external model is not configured. Client figures stay in Ledgerly. This build uses synthetic clients and does not train on them.
 
@@ -165,7 +165,7 @@ Settings → Integrations shows QuickBooks Online for the open client. Connect Q
 
 Disconnect clears the stored tokens and asks Intuit to revoke the refresh token. Sync calls the sandbox query API for customers, vendors, accounts, purchases (transactions), invoices, and payments. Ids Intuit returns are stored on this firm. A repeated id is rejected. Nothing from QuickBooks is posted into the client’s ledger, invoices, or bank activity. Webhooks require `QUICKBOOKS_WEBHOOK_VERIFIER`. The handler checks the `intuit-signature` HMAC and rejects a request that does not match. A valid webhook is recorded. It does not import records by itself.
 
-Copy the names from `.env.example`. For `npm run dev`, set `QUICKBOOKS_REDIRECT_URI` to `http://127.0.0.1:5173/api/quickbooks/callback` and register that same URI on the Intuit sandbox app. Restart the API after saving `.env`. This build does not include Intuit app credentials, and it cannot finish a live sandbox connect until those exist.
+Copy the names from `.env.example`. For `npm run dev`, set `QUICKBOOKS_REDIRECT_URI` to `http://localhost:5173/api/quickbooks/callback/ledgerly` and register that same URI on the Intuit sandbox app. Restart the API after saving `.env`. This build does not include Intuit app credentials, and it cannot finish a live sandbox connect until those exist.
 
 ## Fictional demo
 

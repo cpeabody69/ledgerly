@@ -262,7 +262,7 @@ export function Accounting({ clientId, draft = null, onDraftUsed }) {
       <div className="page-header">
         <div>
           <h1>Accounting</h1>
-          <p>Manage your books, accounts, and financial records.</p>
+          <p>Chart of accounts, general ledger, journal entries, and trial balance for this client.</p>
         </div>
         <div className="header-actions">
           <Button icon="plus" disabled={!ledger} onClick={() => setJournalOpen(true)}>New journal entry</Button>
@@ -354,7 +354,7 @@ export function Accounting({ clientId, draft = null, onDraftUsed }) {
           ) : (
             <div className="empty-state">
               <b>{ledger.activity.length ? "No matching activity" : "No journal entries yet"}</b>
-              <p>{ledger.activity.length ? "Try a different search." : "Post a balanced entry to see activity by account."}</p>
+              <p>{ledger.activity.length ? "No account, date, or memo matches that search." : "Post a balanced entry to see activity by account."}</p>
             </div>
           )
         ) : null}
@@ -392,7 +392,7 @@ export function Accounting({ clientId, draft = null, onDraftUsed }) {
           ) : (
             <div className="empty-state">
               <b>{ledger.entries.length ? "No matching journal entries" : "No journal entries yet"}</b>
-              <p>{ledger.entries.length ? "Try a different search." : "A journal entry is a balanced set of lines for this client."}</p>
+              <p>{ledger.entries.length ? "No reference, date, or memo matches that search." : "A journal entry is a balanced set of lines for this client."}</p>
             </div>
           )
         ) : null}

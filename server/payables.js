@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { addCents, formatMoney, parseCents } from "../shared/money.js";
 import { postJournalEntry } from "./ledger.js";
+import { canApproveBills } from "./permissions.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS ap_vendors (
@@ -134,14 +135,10 @@ function actorRole(db, session) {
   return db.prepare("SELECT role, name FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
 }
 
-function canApproveRole(role) {
-  return role === "owner" || role === "administrator" || role === "manager" || role === "accountant";
-}
-
 function requireApprover(db, session, action) {
   const actor = actorRole(db, session);
-  if (!actor || !canApproveRole(actor.role)) {
-    return fail(403, `Only an owner or a manager can ${action} a bill.`);
+  if (!actor || !canApproveBills(actor.role)) {
+    return fail(403, `Only an owner, administrator, manager, or accountant can ${action} a bill.`);
   }
   return null;
 }
@@ -711,7 +708,7 @@ function books(db, session) {
       type: account.type,
     })),
     cashAccounts: cashChoices(db, session),
-    canApprove: Boolean(actor && canApproveRole(actor.role)),
+    canApprove: Boolean(actor && canApproveBills(actor.role)),
     bills,
     payments,
     vendors: vendors.map((row) => vendorJson(row, bills, payments)),

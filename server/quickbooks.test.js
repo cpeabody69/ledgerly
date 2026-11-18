@@ -21,7 +21,7 @@ const ENV_KEYS = [
 ];
 const CLIENT_ID = "qb-client-id-test";
 const SECRET = "qb-client-secret-value-test";
-const REDIRECT = "http://127.0.0.1/api/quickbooks/callback";
+const REDIRECT = "http://127.0.0.1/api/quickbooks/callback/ledgerly";
 const VERIFIER = "qb-webhook-verifier-value-test";
 const TOKEN = "qb-access-token-value-test";
 const REFRESH = "qb-refresh-token-value-test";
@@ -135,7 +135,7 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
     writeFileSync(envFile, [
       "QUICKBOOKS_CLIENT_ID=from-file",
       "QUICKBOOKS_CLIENT_SECRET=from-file-secret",
-      "QUICKBOOKS_REDIRECT_URI=https://example.test/api/quickbooks/callback",
+      "QUICKBOOKS_REDIRECT_URI=https://example.test/api/quickbooks/callback/ledgerly",
       "QUICKBOOKS_ENV=sandbox",
       "QUICKBOOKS_WEBHOOK_VERIFIER=from-file-verifier",
       "OTHER=1",
@@ -230,13 +230,14 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
       const authorization = new URL(started.body.authorizationUrl);
       assert.equal(authorization.origin, "https://appcenter.intuit.com");
       assert.equal(authorization.pathname, "/connect/oauth2");
+      assert.equal(authorization.searchParams.get("redirect_uri"), REDIRECT);
       assert.equal(authorization.searchParams.get("client_id"), CLIENT_ID);
       assert.equal(authorization.searchParams.get("response_type"), "code");
       assert.equal(calls.length, 0);
 
       async function callback(code, realmId = REALM) {
         const params = new URLSearchParams({ code, state: authorization.searchParams.get("state"), realmId });
-        const response = await olivia.fetch(`${base}/api/quickbooks/callback?${params}`, { redirect: "manual" });
+        const response = await olivia.fetch(`${base}/api/quickbooks/callback/ledgerly?${params}`, { redirect: "manual" });
         const text = await response.text();
         seen.push(`${response.headers.get("location") || ""}\n${text}`);
         return response;
@@ -260,7 +261,7 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
         state: secondUrl.searchParams.get("state"),
         realmId: REALM,
       });
-      const notoken = await olivia.fetch(`${base}/api/quickbooks/callback?${notokenParams}`, { redirect: "manual" });
+      const notoken = await olivia.fetch(`${base}/api/quickbooks/callback/ledgerly?${notokenParams}`, { redirect: "manual" });
       seen.push(`${notoken.headers.get("location") || ""}\n${await notoken.text()}`);
       const afterNotoken = await sendJson(olivia, base, "GET", "/api/quickbooks");
       seen.push(afterNotoken.text);
@@ -275,7 +276,7 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
         state: thirdUrl.searchParams.get("state"),
         realmId: REALM,
       });
-      const connectedResponse = await olivia.fetch(`${base}/api/quickbooks/callback?${realParams}`, { redirect: "manual" });
+      const connectedResponse = await olivia.fetch(`${base}/api/quickbooks/callback/ledgerly?${realParams}`, { redirect: "manual" });
       seen.push(`${connectedResponse.headers.get("location") || ""}\n${await connectedResponse.text()}`);
       assert.match(connectedResponse.headers.get("location") || "", /quickbooks=connected/);
       const connected = await sendJson(olivia, base, "GET", "/api/quickbooks");

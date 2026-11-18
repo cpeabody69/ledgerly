@@ -150,7 +150,7 @@ export function Reports({ clientId }) {
       <div className="page-header">
         <div>
           <h1>Reports</h1>
-          <p>Analyze performance and make informed financial decisions.</p>
+          <p>Profit and loss, balance sheet, and cash flow from this client's books.</p>
         </div>
         <div className="header-actions">
           <Button icon="download" disabled={!statement} onClick={exportStatement}>Export</Button>

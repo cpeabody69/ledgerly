@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { accessScope, clientAllowed, lookupClient, recordAccessDenial } from "./access.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS client_files (
@@ -191,7 +192,8 @@ function writeVersion(db, session, file, note) {
 }
 
 function clientInFirm(db, session, clientId) {
-  return db.prepare("SELECT id, name FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
+  const row = lookupClient(db, session, clientId);
+  return row ? { id: row.id, name: row.name } : null;
 }
 
 function fileName(value) {
@@ -261,9 +263,11 @@ export function listRequestHistory(db, session, clientId = null) {
        AND (? IS NULL OR document_requests.client_id = ?)
      ORDER BY document_requests.created_at, clients.name, document_requests.title`,
   ).all(session.firm_id, clientId || null, clientId || null).map(requestJson);
+  const scope = accessScope(db, session);
+  const visible = scope.unrestricted ? rows : rows.filter((request) => scope.clientIds.includes(request.clientId));
   return {
-    outstanding: rows.filter((request) => request.status === "open"),
-    completed: rows.filter((request) => request.status === "complete"),
+    outstanding: visible.filter((request) => request.status === "open"),
+    completed: visible.filter((request) => request.status === "complete"),
   };
 }
 
@@ -286,7 +290,9 @@ export function listDocuments(db, session, clientId) {
        AND client_files.status = 'stored'
      ORDER BY client_files.created_at, client_files.name`,
   ).all(session.firm_id, clientId || null, clientId || null);
-  return { status: 200, payload: { files: rows.map(fileJson) } };
+  const scope = accessScope(db, session);
+  const files = rows.map(fileJson).filter((file) => scope.unrestricted || scope.clientIds.includes(file.clientId));
+  return { status: 200, payload: { files } };
 }
 
 export function storeDocument(db, session, input) {
@@ -380,11 +386,24 @@ export function storeDocument(db, session, input) {
   return { status: 201, payload: { file: fileJson(stored) } };
 }
 
+function documentRow(db, session, id) {
+  const row = db.prepare(
+    "SELECT id, name, media_type, bytes, client_id, firm_id FROM client_files WHERE id = ?",
+  ).get(id);
+  if (!row || row.firm_id !== session.firm_id) {
+    if (row) recordAccessDenial(db, session, "Cross-firm document access was rejected.");
+    return null;
+  }
+  if (!clientAllowed(db, session, row.client_id)) {
+    recordAccessDenial(db, session, "This person is not granted this client's documents.", row.client_id);
+    return null;
+  }
+  return row;
+}
+
 export function readDocument(db, session, id) {
   ensureDocuments(db);
-  const row = db.prepare(
-    "SELECT name, media_type, bytes FROM client_files WHERE id = ? AND firm_id = ?",
-  ).get(id, session.firm_id);
+  const row = documentRow(db, session, id);
   if (!row) return null;
   return {
     name: row.name,
@@ -395,6 +414,8 @@ export function readDocument(db, session, id) {
 
 export function removeDocument(db, session, id) {
   ensureDocuments(db);
+  const allowed = documentRow(db, session, id);
+  if (!allowed) return fail(404, "File not found.");
   const row = db.prepare(
     "SELECT id, client_id, request_id FROM client_files WHERE id = ? AND firm_id = ?",
   ).get(id, session.firm_id);
