@@ -164,16 +164,27 @@ function presentInvoice(db, session, invoice) {
     dueOn: invoice.due_on,
     memo: invoice.memo,
     approvedBy: invoice.approved_by || "",
-    lines: lines.map((line) => ({
-      id: line.id,
-      description: line.description,
-      service: line.service,
-      amountCents: Number(line.amount_cents),
-      timeEntryId: line.time_entry_id || "",
-    })),
+    lines: lines.map((line) => {
+      const time = line.time_entry_id
+        ? db.prepare("SELECT invoice_id FROM time_entries WHERE id = ? AND firm_id = ?").get(line.time_entry_id, session.firm_id)
+        : null;
+      return {
+        id: line.id,
+        description: line.description,
+        service: line.service,
+        amountCents: Number(line.amount_cents),
+        timeEntryId: line.time_entry_id || "",
+        alreadyOnClientInvoice: Boolean(time?.invoice_id),
+      };
+    }),
     ...moneyTotals,
     postsToClientLedger: false,
     collectsCard: false,
+    clientLedgerWarning: lines.some((line) => line.time_entry_id && db.prepare(
+      "SELECT invoice_id FROM time_entries WHERE id = ? AND firm_id = ?",
+    ).get(line.time_entry_id, session.firm_id)?.invoice_id)
+      ? "Some of this time is already on a client-ledger invoice. This firm fee does not post to those books."
+      : "",
   };
 }
 

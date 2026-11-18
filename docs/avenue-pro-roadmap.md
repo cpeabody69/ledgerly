@@ -60,7 +60,7 @@ Implemented on `cursor/firm-billing-aef1`. Covered by `server/billing.test.js`.
 - Stripe Connect stays off. The board says payments are not enabled.
 - A firm invoice does not change the client ledger entry count.
 
-Limits: recurring drafts run when someone calls the endpoint, not on a clock. Profit uses all billable hours for the client. No email reminder and no card charge. The billing screen was not exercised in a browser.
+Limits: recurring drafts run when someone calls the endpoint, not on a clock. Profit uses all billable hours for the client. The same hours can also sit on a client-ledger invoice; both responses say so, and neither side removes the other. No email reminder and no card charge. The billing screen was not exercised in a browser.
 
 ## Phases not started
 

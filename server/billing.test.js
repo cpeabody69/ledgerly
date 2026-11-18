@@ -178,6 +178,37 @@ test("hourly billing skips nonbillable time, and a recurring draft is created on
     });
     assert.equal(hourly.response.status, 201, hourly.body.error);
     assert.equal(hourly.body.invoice.balanceCents, 20000);
+    assert.equal(hourly.body.invoice.clientLedgerWarning, "");
+    const clientDraft = await sendJson(olivia, base, "POST", "/api/time/invoice", {
+      entryIds: [billable.body.entry.id],
+      issueDate: "2026-03-04",
+      dueDate: "2026-03-18",
+    });
+    assert.equal(clientDraft.response.status, 201, clientDraft.body.error);
+    assert.match(clientDraft.body.firmFeeWarning, /firm fee invoice/);
+    const later = await sendJson(olivia, base, "POST", "/api/time", {
+      clientId: creative.id,
+      workId: work.body.work.id,
+      workedOn: "2026-03-06",
+      hours: "1.00",
+      note: "Already on the client invoice path",
+    });
+    const clientFirst = await sendJson(olivia, base, "POST", "/api/time/invoice", {
+      entryIds: [later.body.entry.id],
+      issueDate: "2026-03-06",
+      dueDate: "2026-03-20",
+    });
+    assert.equal(clientFirst.response.status, 201, clientFirst.body.error);
+    assert.equal(clientFirst.body.firmFeeWarning, "");
+    const firmAfter = await sendJson(olivia, base, "POST", "/api/billing/invoices", {
+      clientId: creative.id,
+      issueOn: "2026-03-06",
+      dueOn: "2026-03-20",
+      entryIds: [later.body.entry.id],
+    });
+    assert.equal(firmAfter.response.status, 201, firmAfter.body.error);
+    assert.equal(firmAfter.body.invoice.lines[0].alreadyOnClientInvoice, true);
+    assert.match(firmAfter.body.invoice.clientLedgerWarning, /client-ledger invoice/);
     await sendJson(olivia, base, "POST", `/api/billing/invoices/${hourly.body.invoice.id}/approve`, {});
     const firstTasks = await (await olivia.fetch(`${base}/api/tasks`)).json();
     const secondTasks = await (await olivia.fetch(`${base}/api/tasks`)).json();

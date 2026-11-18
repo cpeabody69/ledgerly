@@ -407,6 +407,9 @@ export function invoiceTime(db, session, input) {
       invoice: created.payload.invoice,
       entries,
       amountCents,
+      firmFeeWarning: rows.some((row) => row.firm_invoice_id)
+        ? "Some of this time is already on a firm fee invoice. That fee does not post to these books."
+        : "",
     },
   };
 }
