@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { accessScope, lookupClient, scopeSql } from "./access.js";
 import { syncCloseIssues } from "./close.js";
+import { syncTaxIssues } from "./tax-intel.js";
 import { canApproveBills, canSeeTeamWork } from "./permissions.js";
 
 const SCHEMA = `
@@ -353,6 +354,7 @@ function targetFor(row) {
   if (row.source_type === "unpaid_bill") return { screen: "Accounts Payable", billId: row.source_id };
   if (row.source_type === "bookkeeping_month") return { screen: "Transactions", transactionTab: "for_review" };
   if (row.source_type === "close_issue") return { screen: "Close" };
+  if (row.source_type === "tax_issue") return { screen: "Tax Planning" };
   return null;
 }
 
@@ -885,6 +887,7 @@ function syncSources(db, session) {
   syncSchedules(db, session);
   syncReminders(db, session);
   syncCloseIssues(db, session);
+  syncTaxIssues(db, session);
 }
 
 function templateJson(row) {

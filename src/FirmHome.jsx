@@ -4,7 +4,7 @@ function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose, onSession }) {
+export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose, onOpenTax, onSession }) {
   const [home, setHome] = useState(null);
   const [error, setError] = useState("");
   const [clientName, setClientName] = useState("");
@@ -156,6 +156,24 @@ export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose
                 ))}
               </ul>
             ) : <p className="books-note">{home.close.counts.clients ? "No close is overdue and no check is open." : "No clients to close."}</p>}
+          </>
+        ) : <p className="books-note">Loading the firm…</p>}
+      </section>
+      <section className="card tax-summary">
+        <div className="card-header"><div><h2>Tax readiness</h2><p>{home?.tax ? home.tax.year : "This year"}</p></div>{onOpenTax ? <button type="button" className="text-button" onClick={() => onOpenTax()}>Open planning</button> : null}</div>
+        {home?.tax ? (
+          <>
+            <p className="firm-progress"><b>{home.tax.counts.ready}</b> of <b>{home.tax.counts.clients}</b> clients are tax-ready. <b>{home.tax.counts.outstanding}</b> items are still open.</p>
+            {home.tax.clients.filter((client) => client.status !== "ready").slice(0, 8).length ? (
+              <ul className="plain-list">
+                {home.tax.clients.filter((client) => client.status !== "ready").slice(0, 8).map((client) => (
+                  <li key={client.id}>
+                    <button type="button" className="text-button" onClick={() => onOpenTax ? onOpenTax(client.id) : onOpenClient(client.id)}>{client.name}</button>
+                    <small>{client.statusLabel} · {client.outstanding} open</small>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="books-note">Every visible client is tax-ready.</p>}
           </>
         ) : <p className="books-note">Loading the firm…</p>}
       </section>

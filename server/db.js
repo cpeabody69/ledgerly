@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
 import { ensureClose } from "./close.js";
+import { ensureTaxIntel } from "./tax-intel.js";
 import { ensureWork } from "./work.js";
 import { ensureBanking } from "./banking.js";
 import { applyProfile, ensureFirmCrm, profileFields } from "./clients.js";
@@ -139,6 +140,7 @@ export function openDatabase(dbPath) {
   ensureTime(db);
   ensurePortal(db);
   ensureTax(db);
+  ensureTaxIntel(db);
   ensureAssistant(db);
   ensureSubscription(db);
   ensurePlaid(db);
