@@ -123,6 +123,24 @@ export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onSession }
         <button type="button" className="card firm-metric" onClick={onOpenQueue}><b>{counts ? counts.upcomingDeadlines : "—"}</b><span>Deadlines in 14 days</span></button>
         <button type="button" className="card firm-metric" onClick={onOpenClients}><b>{counts ? counts.outstandingRequests : "—"}</b><span>Document requests</span></button>
       </div>
+      <section className="card workflow-summary">
+        <div className="card-header"><div><h2>Workflow</h2><p>Completion, overdue work, and clients that still have an accounting task.</p></div></div>
+        {home?.workflow ? (
+          <>
+            <p className="firm-progress"><b>{home.workflow.completion}%</b> of {home.workflow.total} workflow tasks are complete. <b>{home.workflow.overdue}</b> are overdue.</p>
+            {home.workflow.clientsNeedingAttention.length ? (
+              <ul className="plain-list">
+                {home.workflow.clientsNeedingAttention.map((client) => (
+                  <li key={client.id}>
+                    <button type="button" className="text-button" onClick={() => onOpenClient(client.id)}>{client.name}</button>
+                    <small>{client.openTasks} open · {client.overdueTasks} overdue</small>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="books-note">{home.workflow.total ? "No client needs attention for an open accounting task." : "No workflow tasks yet."}</p>}
+          </>
+        ) : <p className="books-note">Loading the firm…</p>}
+      </section>
       <div className="firm-grid">
         <section className="card">
           <div className="card-header"><div><h2>Bookkeeping progress</h2><p>{bookkeeping ? bookkeeping.monthLabel : "This month"}</p></div></div>

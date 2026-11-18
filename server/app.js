@@ -30,7 +30,7 @@ import {
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
 import { beginQuickBooksConnect, disconnectQuickBooks, handleQuickBooksCallback, handleQuickBooksWebhook, readQuickBooks, syncQuickBooks } from "./quickbooks/index.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
-import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
+import { approveWorkTask, assignSchedule, commentWorkTask, completeWorkTask, createWorkTask, listWorkflows, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
 import { crossSiteError, handleAuthRoutes, noteOnboarding, onboardingPassthrough, readonlyWriteError, withinRateLimit } from "./auth.js";
 import { alignSelectedClient, listAudit, listClientGrants, recordAccessDenial, saveClientGrants } from "./access.js";
@@ -1268,6 +1268,24 @@ async function handle(req, res, db, options) {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/api/workflows/templates") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, listWorkflows(db, session));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/workflows/schedules") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, assignSchedule(db, session, await readBody(req)));
+    return;
+  }
+
   if (req.method === "GET" && pathname === "/api/tasks") {
     if (!session) {
       send(res, 401, { error: "Sign in required." });
@@ -1295,6 +1313,16 @@ async function handle(req, res, db, options) {
       return;
     }
     sendResult(res, commentWorkTask(db, session, decodeURIComponent(workComment[1]), await readBody(req)));
+    return;
+  }
+
+  const workApprove = pathname.match(/^\/api\/tasks\/([^/]+)\/approve$/);
+  if (workApprove && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, approveWorkTask(db, session, decodeURIComponent(workApprove[1])));
     return;
   }
 

@@ -68,6 +68,9 @@ function TaskForm({ queue, task, onClose, onSaved }) {
   const [assigneeId, setAssigneeId] = useState(task?.assigneeId || "");
   const [clientId, setClientId] = useState(task?.clientId || queue.clients?.[0]?.id || "");
   const [dueOn, setDueOn] = useState(task ? (task.dueOn || "") : (queue.today || ""));
+  const [recurrence, setRecurrence] = useState(task?.recurrence || "");
+  const [stage, setStage] = useState(task?.stage || "ready");
+  const [blockedByTaskId, setBlockedByTaskId] = useState(task?.blockedByTaskId || "");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -75,7 +78,7 @@ function TaskForm({ queue, task, onClose, onSaved }) {
     event.preventDefault();
     setPending(true);
     setError("");
-    const body = { title, detail, notes, category, priority, status, assigneeId, clientId, dueOn };
+    const body = { title, detail, notes, category, priority, status, assigneeId, clientId, dueOn, recurrence, stage, blockedByTaskId };
     const response = await fetch(task ? `/api/tasks/${task.id}` : "/api/tasks", {
       method: task ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
@@ -125,9 +128,36 @@ function TaskForm({ queue, task, onClose, onSaved }) {
               <option value="bill">Bill approval</option>
               <option value="invoice">Overdue invoice</option>
               <option value="document">Document request</option>
+              <option value="bookkeeping">Bookkeeping</option>
+              <option value="reconciliation">Reconciliation</option>
+              <option value="tax">Tax</option>
+              <option value="onboarding">Onboarding</option>
             </select>
           </label>
           <label className="field"><span>Due date</span><input type="date" value={dueOn} onChange={(event) => setDueOn(event.target.value)} /></label>
+          <label className="field"><span>Repeats</span>
+            <select value={recurrence} onChange={(event) => setRecurrence(event.target.value)}>
+              <option value="">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annual">Annual</option>
+            </select>
+          </label>
+          <label className="field"><span>Review</span>
+            <select value={stage} onChange={(event) => setStage(event.target.value)}>
+              <option value="ready">Ready</option>
+              <option value="in_review">In review</option>
+              <option value="approved">Approved</option>
+            </select>
+          </label>
+          <label className="field"><span>Depends on</span>
+            <select value={blockedByTaskId} onChange={(event) => setBlockedByTaskId(event.target.value)}>
+              <option value="">Nothing</option>
+              {(queue.tasks || []).filter((item) => item.id !== task?.id).map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}
+            </select>
+          </label>
           <label className="field"><span>Client</span>
             <select value={clientId} onChange={(event) => setClientId(event.target.value)}>
               <option value="">No client</option>
@@ -183,6 +213,39 @@ function TaskCalendar({ tasks, today, anchor, view, onAnchor, onOpen }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function TaskKanban({ tasks, onOpen, onComplete, onApprove }) {
+  const columns = [
+    ["open", "Open", (task) => task.status === "open" && task.stage !== "in_review" && !task.blocked],
+    ["review", "In review", (task) => task.status !== "completed" && task.status !== "waiting_on_client" && task.stage === "in_review" && !task.blocked],
+    ["waiting", "Waiting", (task) => task.status === "waiting_on_client"],
+    ["blocked", "Blocked", (task) => task.status !== "completed" && task.blocked],
+    ["done", "Completed", (task) => task.status === "completed"],
+  ];
+  return (
+    <div className="kanban">
+      {columns.map(([id, label, match]) => {
+        const items = tasks.filter(match);
+        return (
+          <div className="kanban-col" key={id}>
+            <h3>{label} <span>{items.length}</span></h3>
+            {items.map((task) => (
+              <article className="kanban-card" key={task.id}>
+                <b>{task.title}</b>
+                <small>{[task.clientName, task.assigneeName || "Unassigned", task.dueOnLabel].filter(Boolean).join(" · ")}</small>
+                <div className="kanban-actions">
+                  <button className="row-action" type="button" onClick={() => onOpen(task)}>Open</button>
+                  {task.status !== "completed" ? <button className="row-action" type="button" onClick={() => onComplete(task)}>Complete</button> : null}
+                  {task.status !== "completed" && task.stage !== "approved" ? <button className="row-action" type="button" onClick={() => onApprove(task)}>Approve</button> : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -256,6 +319,9 @@ export function WorkQueue({ onOpenTask }) {
   const [activityId, setActivityId] = useState("");
   const [view, setView] = useState("table");
   const [cursor, setCursor] = useState("");
+  const [templateKey, setTemplateKey] = useState("");
+  const [scheduleClientId, setScheduleClientId] = useState("");
+  const [scheduleAssigneeId, setScheduleAssigneeId] = useState("");
 
   function load() {
     return fetch("/api/tasks").then(async (response) => {
@@ -304,6 +370,32 @@ export function WorkQueue({ onOpenTask }) {
     });
   }, [queue, card, query, status, priority, category, assigneeId, clientId, dueOn]);
 
+  async function approve(task) {
+    const response = await fetch(`/api/tasks/${task.id}/approve`, { method: "POST" });
+    const body = await readJson(response);
+    if (!response.ok) {
+      setError(body.error || "The task was not approved.");
+      return;
+    }
+    setQueue(body);
+  }
+
+  async function assignWorkflow(event) {
+    event.preventDefault();
+    setError("");
+    const response = await fetch("/api/workflows/schedules", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ templateKey, clientId: scheduleClientId, assigneeId: scheduleAssigneeId }),
+    });
+    const body = await readJson(response);
+    if (!response.ok) {
+      setError(body.error || "The workflow was not assigned.");
+      return;
+    }
+    setQueue(body);
+  }
+
   async function complete(task) {
     const response = await fetch(`/api/tasks/${task.id}/complete`, { method: "POST" });
     const body = await readJson(response);
@@ -330,7 +422,7 @@ export function WorkQueue({ onOpenTask }) {
         </div>
         <div className="header-actions">
           <div className="queue-view" role="group" aria-label="Queue view">
-            {[["table", "Table"], ["month", "Month"], ["week", "Week"]].map(([id, label]) => (
+            {[["table", "Table"], ["kanban", "Kanban"], ["month", "Month"], ["week", "Week"]].map(([id, label]) => (
               <button className={`button secondary ${view === id ? "active" : ""}`} type="button" key={id} onClick={() => setView(id)}>{label}</button>
             ))}
           </div>
@@ -345,6 +437,41 @@ export function WorkQueue({ onOpenTask }) {
           </button>
         ))}
       </div>
+      {queue?.reminders?.length ? (
+        <section className="card reminder-list">
+          <div className="card-header"><div><h2>Reminders</h2><p>One reminder is stored for each assigned due date.</p></div></div>
+          <ul className="plain-list">
+            {queue.reminders.map((item) => <li key={item.id}><b>{item.title}</b><small>{item.dueOnLabel || item.remindOn}</small></li>)}
+          </ul>
+        </section>
+      ) : null}
+      <section className="card">
+        <div className="card-header"><div><h2>Workflow templates</h2><p>Assign a template to a client. Tax templates prepare the file. They do not file a return.</p></div></div>
+        <ul className="plain-list">
+          {(queue?.templates || []).map((template) => <li key={template.id}><b>{template.name}</b><small>{template.cadenceLabel} · {template.detail}</small></li>)}
+        </ul>
+        <form className="workflow-assign" onSubmit={assignWorkflow}>
+          <label className="field"><span>Template</span>
+            <select aria-label="Workflow template" value={templateKey} onChange={(event) => setTemplateKey(event.target.value)}>
+              <option value="">Choose</option>
+              {(queue?.templates || []).map((template) => <option value={template.key} key={template.id}>{template.name}</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Client</span>
+            <select aria-label="Workflow client" value={scheduleClientId} onChange={(event) => setScheduleClientId(event.target.value)}>
+              <option value="">Choose</option>
+              {(queue?.clients || []).map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Assignee</span>
+            <select aria-label="Workflow assignee" value={scheduleAssigneeId} onChange={(event) => setScheduleAssigneeId(event.target.value)}>
+              <option value="">Unassigned</option>
+              {(queue?.members || []).map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
+            </select>
+          </label>
+          <button className="button" type="submit" disabled={!templateKey || !scheduleClientId}>Assign workflow</button>
+        </form>
+      </section>
       <section className="card table-card">
         <div className="toolbar queue-filters">
           <div className="search-field">
@@ -370,6 +497,10 @@ export function WorkQueue({ onOpenTask }) {
             <option value="bill">Bill approval</option>
             <option value="invoice">Overdue invoice</option>
             <option value="document">Document request</option>
+            <option value="bookkeeping">Bookkeeping</option>
+            <option value="reconciliation">Reconciliation</option>
+            <option value="tax">Tax</option>
+            <option value="onboarding">Onboarding</option>
             <option value="general">General</option>
           </select>
           <select aria-label="Assignee" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
@@ -384,7 +515,8 @@ export function WorkQueue({ onOpenTask }) {
           <input aria-label="Due date" type="date" value={dueOn} onChange={(event) => setDueOn(event.target.value)} />
         </div>
         {error ? <p className="form-error books-error" role="alert">{error}</p> : null}
-        {view !== "table" && anchor ? <TaskCalendar tasks={rows} today={queue?.today || ""} anchor={anchor} view={view} onAnchor={setCursor} onOpen={openCalendarTask} /> : null}
+        {(view === "month" || view === "week") && anchor ? <TaskCalendar tasks={rows} today={queue?.today || ""} anchor={anchor} view={view} onAnchor={setCursor} onOpen={openCalendarTask} /> : null}
+        {view === "kanban" ? <TaskKanban tasks={rows} onOpen={openCalendarTask} onComplete={complete} onApprove={approve} /> : null}
         {view === "table" && rows.length ? (
           <div className="table-wrap">
             <table>
@@ -419,6 +551,7 @@ export function WorkQueue({ onOpenTask }) {
                       <button className="row-action" type="button" onClick={() => setActivityId(task.id)}>Activity</button>
                       <button className="row-action" type="button" onClick={() => { setEditing(task); setCreating(false); }}>Edit</button>
                       {task.status !== "completed" ? <button className="row-action" type="button" onClick={() => complete(task)}>Complete</button> : null}
+                      {task.status !== "completed" && task.stage !== "approved" ? <button className="row-action" type="button" onClick={() => approve(task)}>Approve</button> : null}
                     </td>
                   </tr>
                 ))}
