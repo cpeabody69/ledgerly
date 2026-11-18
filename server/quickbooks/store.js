@@ -114,6 +114,9 @@ const CONNECTION_FIELDS = `id, firm_id, client_id, realm_id, company_name, statu
 
 export function ensureQuickBooks(db) {
   db.exec(SCHEMA);
+  const columns = new Set(db.prepare("PRAGMA table_info(quickbooks_syncs)").all().map((column) => column.name));
+  if (!columns.has("unchanged_count")) db.exec("ALTER TABLE quickbooks_syncs ADD COLUMN unchanged_count INTEGER NOT NULL DEFAULT 0");
+  if (!columns.has("conflict_count")) db.exec("ALTER TABLE quickbooks_syncs ADD COLUMN conflict_count INTEGER NOT NULL DEFAULT 0");
 }
 
 export function fail(status, error) {
@@ -170,7 +173,7 @@ export function publicConnection(db, firmId, clientId) {
   const row = loadConnection(db, firmId, clientId);
   if (!row) return emptyConnection();
   const history = db.prepare(
-    `SELECT id, entity_type, status, imported_count, error_message, created_at
+    `SELECT id, entity_type, status, imported_count, unchanged_count, conflict_count, error_message, created_at
      FROM quickbooks_syncs
      WHERE firm_id = ? AND client_id = ? AND connection_id = ?
      ORDER BY created_at DESC, rowid DESC
@@ -180,6 +183,8 @@ export function publicConnection(db, firmId, clientId) {
     entity: item.entity_type,
     status: item.status,
     imported: Number(item.imported_count),
+    unchanged: Number(item.unchanged_count || 0),
+    conflicts: Number(item.conflict_count || 0),
     error: item.error_message,
     createdAt: item.created_at,
     createdLabel: stampLabel(item.created_at),
@@ -228,14 +233,26 @@ export function recordConnectionError(db, actor, connectionId, message) {
   ).run(randomUUID(), actor.firm_id, actor.selected_client_id || actor.client_id, connectionId || null, message, new Date().toISOString());
 }
 
-export function recordSync(db, actor, connectionId, entity, status, importedCount, errorMessage) {
+export function recordSync(db, actor, connectionId, entity, status, importedCount, errorMessage, unchangedCount = 0, conflictCount = 0) {
   const now = new Date().toISOString();
   const syncId = randomUUID();
   db.prepare(
     `INSERT INTO quickbooks_syncs (
-      id, firm_id, client_id, connection_id, entity_type, status, imported_count, error_message, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(syncId, actor.firm_id, actor.selected_client_id || actor.client_id, connectionId, entity, status, importedCount, errorMessage || "", now);
+      id, firm_id, client_id, connection_id, entity_type, status, imported_count, unchanged_count, conflict_count, error_message, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    syncId,
+    actor.firm_id,
+    actor.selected_client_id || actor.client_id,
+    connectionId,
+    entity,
+    status,
+    importedCount,
+    unchangedCount,
+    conflictCount,
+    errorMessage || "",
+    now,
+  );
   if (status === "error" && errorMessage) {
     db.prepare(
       `INSERT INTO quickbooks_sync_errors (

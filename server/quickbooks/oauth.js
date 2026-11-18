@@ -13,6 +13,7 @@ import {
   recordConnectionError,
   writeAudit,
 } from "./store.js";
+import { ensureMirror, mirrorSummary, resolveQuickBooksConflict, setBooksAuthority } from "./mirror.js";
 
 function actorRole(db, session) {
   return db.prepare("SELECT role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
@@ -161,8 +162,11 @@ function storeConnected(db, actor, config, token, realmId, companyName, companyE
 
 export function readQuickBooks(db, session) {
   ensureQuickBooks(db);
+  ensureMirror(db);
   const config = quickBooksConfig();
-  return { status: 200, payload: publicPayload(config, publicConnection(db, session.firm_id, session.selected_client_id)) };
+  const payload = publicPayload(config, publicConnection(db, session.firm_id, session.selected_client_id));
+  payload.mirror = mirrorSummary(db, session.firm_id, session.selected_client_id);
+  return { status: 200, payload };
 }
 
 export function beginQuickBooksConnect(db, session) {

@@ -73,7 +73,7 @@ import {
   updateStripeSeats,
 } from "./subscription.js";
 import { createLinkToken, disconnectPlaid, exchangePublicToken, readPlaid, syncPlaid } from "./plaid.js";
-import { beginQuickBooksConnect, disconnectQuickBooks, handleQuickBooksCallback, handleQuickBooksWebhook, readQuickBooks, syncQuickBooks } from "./quickbooks/index.js";
+import { beginQuickBooksConnect, disconnectQuickBooks, handleQuickBooksCallback, handleQuickBooksWebhook, readQuickBooks, resolveQuickBooksConflict, setBooksAuthority, syncQuickBooks } from "./quickbooks/index.js";
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { approveWorkTask, assignSchedule, commentWorkTask, completeWorkTask, createWorkTask, listWorkflows, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
@@ -1522,6 +1522,29 @@ async function handle(req, res, db, options) {
     const result = await disconnectQuickBooks(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error, ...(result.payload || {}) });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/quickbooks/authority" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = setBooksAuthority(db, session, await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, { ...readQuickBooks(db, session).payload, authority: result.authority });
+    return;
+  }
+
+  const quickBooksConflict = pathname.match(/^\/api\/quickbooks\/conflicts\/([^/]+)$/);
+  if (quickBooksConflict && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = resolveQuickBooksConflict(db, session, decodeURIComponent(quickBooksConflict[1]), await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, readQuickBooks(db, session).payload);
     return;
   }
 

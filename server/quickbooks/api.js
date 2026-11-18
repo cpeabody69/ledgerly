@@ -1,5 +1,5 @@
 import { ACCOUNTING_SCOPE, MINOR_VERSION, REVOKE_URL, SANDBOX_API, TOKEN_URL, isTokenResponse, safeText } from "./config.js";
-import { rememberQuickBooksId } from "./store.js";
+import { storeQuickBooksRow } from "./mirror.js";
 
 function intuitMessage(payload, fallback) {
   const message = payload?.Fault?.Error?.[0]?.Message || payload?.error_description;
@@ -106,29 +106,22 @@ export async function pullOfficialQuery(ctx, entity, query) {
     return { ok: false, entity, importedIds: [], rejectedIds: [], error: `QuickBooks returned an unexpected ${entity} payload.` };
   }
   const importedIds = [];
+  const unchangedIds = [];
+  const conflictIds = [];
   const rejectedIds = [];
   let error = "";
   for (const row of rows) {
+    const saved = storeQuickBooksRow(ctx.db, ctx, entity, row);
     const rawId = row && (typeof row.Id === "string" || typeof row.Id === "number") ? String(row.Id) : "";
-    if (!/^[0-9A-Za-z-]{1,40}$/.test(rawId)) {
-      error = error || `QuickBooks returned a ${entity} record without an id.`;
-      continue;
-    }
-    const saved = rememberQuickBooksId(ctx.db, {
-      firmId: ctx.firmId,
-      clientId: ctx.clientId,
-      connectionId: ctx.connectionId,
-      realmId: ctx.realmId,
-      entityType: entity,
-      qboId: rawId,
-    });
     if (!saved.ok) {
-      rejectedIds.push(rawId);
+      if (rawId) rejectedIds.push(rawId);
       error = error || saved.error;
-    } else importedIds.push(rawId);
+    } else if (saved.conflict) conflictIds.push(rawId);
+    else if (saved.unchanged) unchangedIds.push(rawId);
+    else importedIds.push(rawId);
   }
   if (rows.length >= 1000) error = error || `QuickBooks returned a full page of ${entity} records. Additional records were not imported.`;
-  return { ok: !error, entity, importedIds, rejectedIds, error };
+  return { ok: !error, entity, importedIds, unchangedIds, conflictIds, rejectedIds, error };
 }
 
 export function requestedScope() {
