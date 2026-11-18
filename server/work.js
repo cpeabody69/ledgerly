@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { accessScope, lookupClient, scopeSql } from "./access.js";
 import { syncCloseIssues } from "./close.js";
 import { syncTaxIssues } from "./tax-intel.js";
+import { noteDocumentReminder } from "./portal-desk.js";
 import { canApproveBills, canSeeTeamWork } from "./permissions.js";
 
 const SCHEMA = `
@@ -789,6 +790,7 @@ function syncSources(db, session) {
       reopen: true,
     });
     remember(openKeys, "document_request", request.id);
+    noteDocumentReminder(db, session, request, today);
   }
 
   const accountScope = scopeSql(db, session, "bank_accounts.client_id");

@@ -1,8 +1,9 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { firms } from "./accounts.js";
 import { hashPassword, verifyPassword } from "./db.js";
 import { listDocuments, listRequestHistory, readDocument, storeDocument } from "./documents.js";
 import { listInvoices } from "./invoices.js";
+import { policyFor, portalHomeExtras } from "./portal-desk.js";
 
 function column(db, table, name) {
   return db.prepare(`PRAGMA table_info(${table})`).all().find((row) => row.name === name);
@@ -105,10 +106,74 @@ function seedPortalUsers(db) {
   }
 }
 
+function addColumn(db, table, name, definition) {
+  const present = db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === name);
+  if (!present) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+}
+
 export function ensurePortal(db) {
   rebuildAudit(db);
   rebuildFiles(db);
+  const users = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'client_users'").get();
+  if (users) {
+    addColumn(db, "client_users", "mfa_secret", "TEXT NOT NULL DEFAULT ''");
+    addColumn(db, "client_users", "mfa_confirmed", "INTEGER NOT NULL DEFAULT 0");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS portal_mfa_tickets (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      firm_id TEXT NOT NULL,
+      client_user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+  `);
   seedPortalUsers(db);
+}
+
+function totp(secret, at) {
+  const counter = Math.floor(at / 30000);
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(counter));
+  const digest = createHmac("sha1", Buffer.from(secret, "base64url")).update(buffer).digest();
+  const offset = digest[digest.length - 1] & 0xf;
+  const binary = digest.readUInt32BE(offset) & 0x7fffffff;
+  return String(binary % 1000000).padStart(6, "0");
+}
+
+export function currentPortalCode(secret, at = Date.now()) {
+  return totp(secret, at);
+}
+
+function codesMatch(secret, code) {
+  const entered = String(code || "").trim();
+  if (!/^\d{6}$/.test(entered)) return false;
+  const now = Date.now();
+  return [-1, 0, 1].some((step) => {
+    const expected = Buffer.from(totp(secret, now + step * 30000));
+    const actual = Buffer.from(entered);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  });
+}
+
+function openPortalSession(db, user) {
+  const now = new Date();
+  const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const session = {
+    id: randomUUID(),
+    token: randomBytes(32).toString("hex"),
+    firm_id: user.firm_id,
+    client_user_id: user.id,
+    client_id: user.client_id,
+    portal: true,
+    selected_client_id: user.client_id,
+  };
+  db.prepare(
+    `INSERT INTO client_sessions (id, token, firm_id, client_user_id, client_id, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(session.id, session.token, session.firm_id, session.client_user_id, session.client_id, now.toISOString(), expires.toISOString());
+  auditPortal(db, session, "session.started");
+  return { token: session.token, payload: portalPayload(db, session) };
 }
 
 function clientJson(row) {
@@ -185,23 +250,54 @@ export function signInPortal(db, email, password) {
     "SELECT status FROM portal_memberships WHERE client_user_id = ? AND firm_id = ? AND client_id = ?",
   ).get(user.id, user.firm_id, user.client_id);
   if (membership && membership.status !== "active") return { error: "This portal access is deactivated.", status: 403 };
-  const now = new Date();
-  const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const session = {
-    id: randomUUID(),
-    token: randomBytes(32).toString("hex"),
-    firm_id: user.firm_id,
-    client_user_id: user.id,
-    client_id: user.client_id,
-    portal: true,
-    selected_client_id: user.client_id,
-  };
+  if (Number(user.mfa_confirmed) === 1 && user.mfa_secret) {
+    const ticket = randomBytes(32).toString("hex");
+    db.prepare(
+      `INSERT INTO portal_mfa_tickets (id, token_hash, firm_id, client_user_id, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      createHash("sha256").update(ticket).digest("hex"),
+      user.firm_id,
+      user.id,
+      new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    );
+    return { mfaRequired: true, ticket };
+  }
+  return openPortalSession(db, user);
+}
+
+export function completePortalMfa(db, ticket, code) {
+  const hash = createHash("sha256").update(String(ticket || "")).digest("hex");
+  const row = db.prepare(
+    "SELECT * FROM portal_mfa_tickets WHERE token_hash = ? AND expires_at > ?",
+  ).get(hash, new Date().toISOString());
+  if (!row) return null;
+  const user = db.prepare("SELECT * FROM client_users WHERE id = ? AND firm_id = ?").get(row.client_user_id, row.firm_id);
+  if (!user || !codesMatch(user.mfa_secret, code)) return null;
+  db.prepare("DELETE FROM portal_mfa_tickets WHERE id = ?").run(row.id);
+  return openPortalSession(db, user);
+}
+
+export function enrollPortalMfa(db, session) {
+  const secret = randomBytes(20).toString("base64url");
   db.prepare(
-    `INSERT INTO client_sessions (id, token, firm_id, client_user_id, client_id, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(session.id, session.token, session.firm_id, session.client_user_id, session.client_id, now.toISOString(), expires.toISOString());
-  auditPortal(db, session, "session.started");
-  return { token: session.token, payload: portalPayload(db, session) };
+    "UPDATE client_users SET mfa_secret = ?, mfa_confirmed = 0 WHERE id = ? AND firm_id = ?",
+  ).run(secret, session.client_user_id, session.firm_id);
+  auditPortal(db, session, "portal.mfa_enrolled");
+  return { status: 200, payload: { secret } };
+}
+
+export function confirmPortalMfa(db, session, input) {
+  const user = db.prepare(
+    "SELECT mfa_secret FROM client_users WHERE id = ? AND firm_id = ?",
+  ).get(session.client_user_id, session.firm_id);
+  if (!user?.mfa_secret || !codesMatch(user.mfa_secret, input?.code)) return { status: 400, error: "That code did not match." };
+  db.prepare(
+    "UPDATE client_users SET mfa_confirmed = 1 WHERE id = ? AND firm_id = ?",
+  ).run(session.client_user_id, session.firm_id);
+  auditPortal(db, session, "portal.mfa_confirmed");
+  return { status: 200, payload: { mfaEnabled: true } };
 }
 
 export function signOutPortal(db, session) {
@@ -248,6 +344,7 @@ export function listPortal(db, session, clientId) {
         total: invoice.total,
         balance: invoice.balance,
       })),
+      ...portalHomeExtras(db, session),
     },
   };
 }
@@ -268,6 +365,8 @@ export function submitPortalFile(db, session, input) {
 }
 
 export function readPortalDocument(db, session, id) {
+  const policy = policyFor(db, session.firm_id);
+  if (Number(policy.client_downloads) === 0) return { blocked: true };
   const row = db.prepare(
     "SELECT client_id FROM client_files WHERE id = ? AND firm_id = ?",
   ).get(id, session.firm_id);

@@ -17,7 +17,18 @@ import {
 } from "./close.js";
 import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
 import { listDocumentReviews, storeDocumentReview } from "./document-reviews.js";
-import { listPortal, readPortalDocument, signInPortal, submitPortalFile } from "./portal.js";
+import { completePortalMfa, confirmPortalMfa, enrollPortalMfa, listPortal, readPortalDocument, signInPortal, submitPortalFile } from "./portal.js";
+import {
+  applyRetention,
+  applyTemplate,
+  approveRequest,
+  listMessages,
+  listTemplates,
+  postMessage,
+  readPortalPolicy,
+  savePortalPolicy,
+  saveTemplate,
+} from "./portal-desk.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
@@ -256,13 +267,17 @@ async function handle(req, res, db, options) {
     }
     const body = await readBody(req);
     if (String(body.email || "").trim().toLowerCase() === DEMO_OWNER.email) ensureDemo(db);
-    const signedIn = signIn(db, body.email, body.password);
+    const signedIn = body.ticket ? completePortalMfa(db, body.ticket, body.code) : signIn(db, body.email, body.password);
     if (!signedIn) {
       send(res, 401, { error: "Email or password is incorrect." });
       return;
     }
     if (signedIn.error) {
       send(res, signedIn.status || 403, { error: signedIn.error });
+      return;
+    }
+    if (signedIn.mfaRequired) {
+      send(res, 200, { mfaRequired: true, ticket: signedIn.ticket });
       return;
     }
     send(res, 200, signedIn.payload, { "set-cookie": setSessionCookie(signedIn.token) });
@@ -308,9 +323,25 @@ async function handle(req, res, db, options) {
       else send(res, result.status, result.payload);
       return;
     }
+    if (req.method === "POST" && pathname === "/api/portal/messages") {
+      sendResult(res, postMessage(db, session, session.client_id, await readBody(req)));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/api/portal/mfa/enroll") {
+      sendResult(res, enrollPortalMfa(db, session));
+      return;
+    }
+    if (req.method === "POST" && pathname === "/api/portal/mfa/confirm") {
+      sendResult(res, confirmPortalMfa(db, session, await readBody(req)));
+      return;
+    }
     const portalDocument = pathname.match(/^\/api\/documents\/([^/]+)$/);
     if (portalDocument && req.method === "GET") {
       const file = readPortalDocument(db, session, decodeURIComponent(portalDocument[1]));
+      if (file?.blocked) {
+        send(res, 403, { error: "Downloads are turned off for this portal." });
+        return;
+      }
       if (!file) send(res, 404, { error: "File not found." });
       else sendBytes(res, file);
       return;
@@ -506,6 +537,73 @@ async function handle(req, res, db, options) {
     const result = createDocumentRequest(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/portal-policy" && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, req.method === "GET" ? readPortalPolicy(db, session) : savePortalPolicy(db, session, await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/document-templates" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, listTemplates(db, session));
+    return;
+  }
+
+  if (pathname === "/api/document-templates" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, saveTemplate(db, session, await readBody(req)));
+    return;
+  }
+
+  const templateApply = pathname.match(/^\/api\/document-templates\/([^/]+)\/apply$/);
+  if (templateApply && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, applyTemplate(db, session, decodeURIComponent(templateApply[1]), await readBody(req)));
+    return;
+  }
+
+  const requestApproval = pathname.match(/^\/api\/document-requests\/([^/]+)\/approve$/);
+  if (requestApproval && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, approveRequest(db, session, decodeURIComponent(requestApproval[1])));
+    return;
+  }
+
+  if (pathname === "/api/documents/retention" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, applyRetention(db, session));
+    return;
+  }
+
+  const portalMessages = pathname.match(/^\/api\/clients\/([^/]+)\/messages$/);
+  if (portalMessages && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const clientId = decodeURIComponent(portalMessages[1]);
+    sendResult(res, req.method === "GET" ? listMessages(db, session, clientId) : postMessage(db, session, clientId, await readBody(req)));
     return;
   }
 

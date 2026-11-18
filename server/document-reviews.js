@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { modelConfig } from "./assistant.js";
+import { revealDocument } from "./document-bytes.js";
 import { ensureDocuments } from "./documents.js";
 
 const NOT_CONFIGURED = "The external model is not configured.";
@@ -141,7 +142,7 @@ export function confidenceLabel(value) {
 }
 
 export function localSuggestion(file) {
-  const body = textContent(file.bytes, file.media_type);
+  const body = textContent(revealDocument(file.bytes), file.media_type);
   const found = findKind(file.name, body);
   const party = fieldParty(body);
   const date = fieldDate(`${file.name}\n${body}`);
