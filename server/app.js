@@ -59,6 +59,7 @@ import {
   taxBoard,
   taxWorkpaperFile,
 } from "./tax-intel.js";
+import { healthBoard, readHealth } from "./health.js";
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import {
   confirmCheckout,
@@ -1247,6 +1248,25 @@ async function handle(req, res, db, options) {
                 ? runTaxScenario(db, session, clientId, body)
                 : markTaxReady(db, session, clientId, body);
     sendResult(res, result);
+    return;
+  }
+
+  if (pathname === "/api/health" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, healthBoard(db, session));
+    return;
+  }
+
+  const healthClient = pathname.match(/^\/api\/health\/([^/]+)$/);
+  if (healthClient && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, readHealth(db, session, decodeURIComponent(healthClient[1])));
     return;
   }
 

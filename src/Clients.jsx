@@ -310,7 +310,7 @@ function ClientTasks({ clientId }) {
   );
 }
 
-function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
+function ClientProfile({ clientId, onClose, onOpen, onOpenHealth, onEdit, onChanged }) {
   const [client, setClient] = useState(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -438,6 +438,7 @@ function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="modal-footer">
           <Button variant="secondary" onClick={onOpen} disabled={!client}>Open books</Button>
+          <Button variant="secondary" onClick={() => onOpenHealth(clientId)} disabled={!client || !onOpenHealth}>Financial health</Button>
           <Button variant="secondary" onClick={() => onEdit(client)} disabled={!client || pending}>Edit</Button>
           {client && client.status !== "archived" ? <Button onClick={archive} disabled={pending}>Archive</Button> : null}
         </div>
@@ -503,7 +504,7 @@ function RequestDocuments({ clients, selectedClientId, onClose, onCreated }) {
   );
 }
 
-export function Clients({ selectedClientId, onOpenClient, onReview, onSession, focusRequestId = "" }) {
+export function Clients({ selectedClientId, onOpenClient, onReview, onOpenHealth, onSession, focusRequestId = "" }) {
   const [firm, setFirm] = useState(null);
   const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
@@ -774,6 +775,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
           clientId={profileId}
           onClose={() => setProfileId(null)}
           onOpen={() => { setProfileId(null); onOpenClient(profileId); }}
+          onOpenHealth={onOpenHealth ? (id) => { setProfileId(null); onOpenHealth(id); } : undefined}
           onEdit={(client) => { setEditing(client); setAdding(false); }}
           onChanged={() => load().catch((loadError) => setError(loadError.message))}
         />
