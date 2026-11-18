@@ -103,6 +103,40 @@ export function Integrations({ clientId, canConnect }) {
     setData(body);
   }
 
+  async function chooseAuthority(authority) {
+    setPending("authority");
+    setError("");
+    const response = await fetch("/api/quickbooks/authority", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ authority }),
+    });
+    const body = await readJson(response);
+    setPending("");
+    if (!response.ok) {
+      setError(body.error || "The authoritative ledger was not changed.");
+      return;
+    }
+    setData(body);
+  }
+
+  async function resolveConflict(id, action) {
+    setPending("conflict");
+    setError("");
+    const response = await fetch(`/api/quickbooks/conflicts/${id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const body = await readJson(response);
+    setPending("");
+    if (!response.ok) {
+      setError(body.error || "The conflict was not resolved.");
+      return;
+    }
+    setData(body);
+  }
+
   async function sync() {
     if (!connection?.id) return;
     setPending("sync");
@@ -125,7 +159,7 @@ export function Integrations({ clientId, canConnect }) {
       <div className="card-header">
         <div>
           <h2>QuickBooks Online</h2>
-          <p>Sandbox connection for this client. Tokens stay on the server.</p>
+          <p>Sandbox connection for this client. Tokens stay on the server. A sync does not post to these books.</p>
         </div>
         <div className="plaid-actions">
           {connected ? (
@@ -163,6 +197,25 @@ export function Integrations({ clientId, canConnect }) {
         </div>
       </dl>
       {connection?.error ? <p className="form-error qb-alert" role="alert">{connection.error}</p> : null}
+      <p className="qb-notice">Authoritative ledger: {data?.mirror?.authorityLabel || "Avenue books"}.</p>
+      {canConnect ? (
+        <div className="plaid-actions">
+          <Button variant="secondary" disabled={pending !== ""} onClick={() => chooseAuthority("avenue")}>Use Avenue books</Button>
+          <Button variant="secondary" disabled={pending !== "" || !connected} onClick={() => chooseAuthority("quickbooks")}>Use QuickBooks books</Button>
+        </div>
+      ) : null}
+      {data?.mirror?.conflicts?.length ? (
+        <div className="plaid-history" aria-label="QuickBooks conflicts">
+          <b>Needs a decision</b>
+          {data.mirror.conflicts.map((conflict) => (
+            <p key={conflict.id}>
+              {conflict.entity} {conflict.qboId}: stored “{conflict.local.name || "record"}”, QuickBooks now says “{conflict.remote.name || "record"}”.
+              {canConnect ? <button type="button" onClick={() => resolveConflict(conflict.id, "keep")}>Keep stored copy</button> : null}
+              {canConnect ? <button type="button" onClick={() => resolveConflict(conflict.id, "accept")}>Accept QuickBooks</button> : null}
+            </p>
+          ))}
+        </div>
+      ) : null}
       <div className="plaid-history" aria-label="Synchronization history">
         <b>Synchronization history</b>
         {connection?.history?.length ? connection.history.map((row) => (

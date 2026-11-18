@@ -68,7 +68,7 @@ These are the intended order. Do not skip one and call the product finished.
 
 ### Phase 10 — QuickBooks
 
-Finish sandbox OAuth, refresh, disconnect, and read-only sync of accounts, transactions, customers, vendors, invoices, bills, and statements. Each client needs an authoritative system: Avenue books or QuickBooks. No silent overwrite. Write-back only after an accountant turns it on and a reconciliation test passes.
+Sandbox OAuth, encrypted tokens, refresh, and disconnect were already in place. Read-only sync now stores accounts, purchases, customers, vendors, invoices, bills, payments, journal entries, and the two financial reports. A repeat of the same record does not create a second copy. A changed record opens a conflict until an owner accepts QuickBooks or keeps the stored copy. Nothing in that sync posts to the Avenue ledger. A client can be marked Avenue or QuickBooks as the authoritative ledger. QuickBooks authority blocks a new Avenue journal entry. Write-back to QuickBooks is not implemented. Live Intuit hosts are refused.
 
 ### Phase 11 — Books-to-tax beyond the sole proprietor
 

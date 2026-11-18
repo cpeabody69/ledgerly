@@ -179,9 +179,34 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
       if (target.startsWith("https://sandbox-quickbooks.api.intuit.com/v3/company/") && target.includes("/query")) {
         const query = new URL(target).searchParams.get("query") || "";
         if (query.includes("from Customer")) {
-          return jsonResponse({ QueryResponse: { Customer: [{ Id: "10", DisplayName: "Ada" }] } });
+          return jsonResponse({ QueryResponse: { Customer: [{ Id: "10", DisplayName: mode.customer || "Ada", SyncToken: mode.customerToken || "0" }] } });
+        }
+        if (query.includes("from Bill")) {
+          return jsonResponse({ QueryResponse: { Bill: [{ Id: "20", DocNumber: "B-1", TotalAmt: "40.00", TxnDate: "2026-02-01", SyncToken: "0" }] } });
+        }
+        if (query.includes("from JournalEntry")) {
+          return jsonResponse({
+            QueryResponse: {
+              JournalEntry: [{
+                Id: "30",
+                SyncToken: "1",
+                TxnDate: "2026-02-02",
+                Line: [
+                  { Amount: 15, JournalEntryLineDetail: { PostingType: "Debit", AccountRef: { name: "Office" } } },
+                  { Amount: 15, JournalEntryLineDetail: { PostingType: "Credit", AccountRef: { name: "Cash" } } },
+                ],
+              }],
+            },
+          });
         }
         return jsonResponse({ QueryResponse: {} });
+      }
+      if (target.includes("/reports/ProfitAndLoss") || target.includes("/reports/BalanceSheet")) {
+        if (mode.failReport) return jsonResponse({ Fault: { Error: [{ Message: "sandbox unavailable" }] } }, 500);
+        return jsonResponse({
+          Header: { ReportName: "Report", StartPeriod: "2026-01-01", EndPeriod: "2026-11-18" },
+          Rows: { Row: [{ Summary: { ColData: [{ value: "Total" }, { value: "10.00" }] } }] },
+        });
       }
       if (target === "https://developer.api.intuit.com/v2/oauth2/tokens/revoke") return new Response(null, { status: 200 });
       throw new Error(`unexpected QuickBooks URL ${target}`);
@@ -375,7 +400,14 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
       assert.equal(synced.response.status, 200);
       assert.equal(synced.body.sync.ok, true);
       assert.equal(synced.body.sync.results.find((row) => row.entity === "Customers").imported, 1);
-      assert.equal(importCount(dbPath), 1);
+      assert.equal(synced.body.sync.results.find((row) => row.entity === "Bills").imported, 1);
+      assert.equal(synced.body.sync.results.find((row) => row.entity === "JournalEntries").imported, 1);
+      assert.equal(synced.body.sync.postsToLedger, false);
+      assert.equal(synced.body.mirror.authority, "avenue");
+      assert.equal(synced.body.mirror.postsToLedger, false);
+      const customer = synced.body.mirror.counts.find((row) => row.entity === "Customer");
+      assert.equal(customer.count, 1);
+      assert.equal(importCount(dbPath), 3);
       assert.ok(synced.body.connection.lastSyncAt);
       const ledgerAfter = await (await olivia.fetch(`${base}/api/ledger`)).json();
       assert.equal(ledgerAfter.entries.length, ledgerBefore.entries.length);
@@ -402,9 +434,75 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
       });
       seen.push(againSync.text);
       assertPublic(againSync.body);
-      assert.equal(againSync.body.sync.ok, false);
-      assert.match(againSync.body.connection.history.find((row) => row.entity === "Customers").error, /already imported/i);
-      assert.equal(importCount(dbPath), 1);
+      assert.equal(againSync.body.sync.ok, true);
+      assert.equal(againSync.body.sync.results.find((row) => row.entity === "Customers").unchanged, 1);
+      assert.equal(againSync.body.sync.results.find((row) => row.entity === "Customers").imported, 0);
+      assert.equal(importCount(dbPath), 3);
+      mode.customer = "Ada Updated";
+      mode.customerToken = "1";
+      const changed = await sendJson(olivia, base, "POST", "/api/quickbooks/sync", {
+        connectionId: connected.body.connection.id,
+      });
+      seen.push(changed.text);
+      assert.equal(changed.body.sync.ok, true);
+      assert.equal(changed.body.sync.results.find((row) => row.entity === "Customers").conflicts, 1);
+      const conflict = changed.body.mirror.conflicts[0];
+      assert.equal(conflict.local.name, "Ada");
+      assert.equal(conflict.remote.name, "Ada Updated");
+      const kept = await sendJson(olivia, base, "POST", `/api/quickbooks/conflicts/${conflict.id}`, { action: "keep" });
+      assert.equal(kept.response.status, 200, kept.body.error);
+      assert.equal(kept.body.mirror.conflicts.length, 0);
+      mode.customerToken = "2";
+      const changedAgain = await sendJson(olivia, base, "POST", "/api/quickbooks/sync", {
+        connectionId: connected.body.connection.id,
+      });
+      const nextConflict = changedAgain.body.mirror.conflicts[0];
+      const accepted = await sendJson(olivia, base, "POST", `/api/quickbooks/conflicts/${nextConflict.id}`, { action: "accept" });
+      assert.equal(accepted.body.mirror.counts.find((row) => row.entity === "Customer" && row.status === "synced").count, 1);
+      const named = new DatabaseSync(dbPath);
+      const storedName = named.prepare("SELECT display_name FROM quickbooks_records WHERE qbo_id = '10'").get().display_name;
+      named.close();
+      assert.equal(storedName, "Ada Updated");
+      const blockedAuthority = await sendJson(olivia, base, "POST", "/api/quickbooks/authority", { authority: "quickbooks" });
+      assert.equal(blockedAuthority.response.status, 200, blockedAuthority.body.error);
+      const books = await (await olivia.fetch(`${base}/api/ledger`)).json();
+      const cash = books.accounts.find((account) => account.code === "1000").id;
+      const income = books.accounts.find((account) => account.code === "4000").id;
+      const blockedPost = await sendJson(olivia, base, "POST", "/api/journal-entries", {
+        entryDate: "2026-03-01",
+        memo: "Should stay off QuickBooks books",
+        lines: [
+          { accountId: cash, debit: "5.00", credit: "" },
+          { accountId: income, debit: "", credit: "5.00" },
+        ],
+      });
+      assert.equal(blockedPost.response.status, 409);
+      const still = await (await olivia.fetch(`${base}/api/ledger`)).json();
+      assert.equal(still.entries.length, books.entries.length);
+      const restoredAuthority = await sendJson(olivia, base, "POST", "/api/quickbooks/authority", { authority: "avenue" });
+      assert.equal(restoredAuthority.body.mirror.authority, "avenue");
+      const sam = cookieJar();
+      await signIn(sam, base, firms.northstar.members.find((member) => member.email === "sam@northstarcreative.co"));
+      const staffAuthority = await sendJson(sam, base, "POST", "/api/quickbooks/authority", { authority: "quickbooks" });
+      assert.equal(staffAuthority.response.status, 403);
+      mode.failReport = true;
+      const failedReport = await sendJson(olivia, base, "POST", "/api/quickbooks/sync", {
+        connectionId: connected.body.connection.id,
+      });
+      assert.equal(failedReport.body.sync.ok, false);
+      assert.equal(failedReport.body.sync.results.find((row) => row.entity === "ProfitAndLoss").status, "error");
+      mode.failReport = false;
+      const retried = await sendJson(olivia, base, "POST", "/api/quickbooks/sync", {
+        connectionId: connected.body.connection.id,
+        retryFailed: true,
+      });
+      assert.equal(retried.body.sync.ok, true, retried.body.error);
+      assert.deepEqual(retried.body.sync.results.map((row) => row.entity).sort(), ["BalanceSheet", "ProfitAndLoss"]);
+      const idle = await sendJson(olivia, base, "POST", "/api/quickbooks/sync", {
+        connectionId: connected.body.connection.id,
+        retryFailed: true,
+      });
+      assert.equal(idle.body.sync.note, "Nothing failed on the last sync.");
 
       const expire = new DatabaseSync(dbPath);
       expire.prepare("UPDATE quickbooks_oauth SET access_expires_at = ?").run("2000-01-01T00:00:00.000Z");
@@ -419,7 +517,7 @@ test("quickbooks connects only from an Intuit token and keeps firms apart", asyn
       assert.equal(refreshFailed.response.status, 502);
       assert.notEqual(refreshFailed.body.connection.status, "connected");
       assert.equal(calls.filter((call) => call.url.includes("/query")).length, queriesBefore);
-      assert.equal(importCount(dbPath), 1);
+      assert.equal(importCount(dbPath), 3);
 
       const disconnected = await sendJson(olivia, base, "POST", "/api/quickbooks/disconnect", {
         connectionId: connected.body.connection.id,

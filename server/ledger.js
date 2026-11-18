@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CHART, CHART_TEMPLATE, CASH_RULE, TEMPLATE_NOTE } from "./chart.js";
 import { noteClosedAdjustment, periodLockError } from "./close.js";
+import { booksBlockJournal } from "./quickbooks/mirror.js";
 import { addCents, formatMoney, parseCents } from "../shared/money.js";
 
 const MONTHS = [
@@ -450,6 +451,8 @@ export function getJournalEntry(db, session, entryId) {
 }
 
 export function postJournalEntry(db, session, input) {
+  const blocked = booksBlockJournal(db, session);
+  if (blocked) return blocked;
   const body = input || {};
   if (Object.prototype.hasOwnProperty.call(body, "clientId") && body.clientId !== session.selected_client_id) {
     return fail(404, "Client not found.");

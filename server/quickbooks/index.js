@@ -1,6 +1,7 @@
 export { loadQuickBooksEnv, quickBooksConfig } from "./config.js";
 export { ensureQuickBooks, rememberQuickBooksId } from "./store.js";
 export { beginQuickBooksConnect, disconnectQuickBooks, handleQuickBooksCallback, readQuickBooks } from "./oauth.js";
+export { resolveQuickBooksConflict, setBooksAuthority } from "./mirror.js";
 export { syncQuickBooks } from "./sync.js";
 export { handleQuickBooksWebhook, verifyIntuitSignature } from "./webhooks.js";
 export { pullCustomers } from "./customers.js";
