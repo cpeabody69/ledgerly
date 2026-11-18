@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CHART, CHART_TEMPLATE, CASH_RULE, TEMPLATE_NOTE } from "./chart.js";
+import { noteClosedAdjustment, periodLockError } from "./close.js";
 import { addCents, formatMoney, parseCents } from "../shared/money.js";
 
 const MONTHS = [
@@ -455,6 +456,8 @@ export function postJournalEntry(db, session, input) {
   }
   const entryDate = parseEntryDate(body.entryDate);
   if (!entryDate) return fail(400, "Enter a date as YYYY-MM-DD.");
+  const locked = periodLockError(db, session, entryDate, body.adjustment === true);
+  if (locked) return locked;
   const memo = typeof body.memo === "string" ? body.memo.trim() : "";
   if (!memo) return fail(400, "Enter a memo.");
   if (memo.length > 200) return fail(400, "Keep the memo to 200 characters.");
@@ -529,6 +532,7 @@ export function postJournalEntry(db, session, input) {
     if (error.status) return fail(error.status, error.message);
     throw error;
   }
+  if (body.adjustment === true) noteClosedAdjustment(db, session, entryDate, entryId);
 
   return {
     status: 201,

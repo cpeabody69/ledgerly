@@ -4,7 +4,7 @@ function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onSession }) {
+export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose, onSession }) {
   const [home, setHome] = useState(null);
   const [error, setError] = useState("");
   const [clientName, setClientName] = useState("");
@@ -138,6 +138,24 @@ export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onSession }
                 ))}
               </ul>
             ) : <p className="books-note">{home.workflow.total ? "No client needs attention for an open accounting task." : "No workflow tasks yet."}</p>}
+          </>
+        ) : <p className="books-note">Loading the firm…</p>}
+      </section>
+      <section className="card close-summary">
+        <div className="card-header"><div><h2>Monthly close</h2><p>{home?.close ? home.close.period : "This month"}</p></div>{onOpenClose ? <button type="button" className="text-button" onClick={() => onOpenClose()}>Open close</button> : null}</div>
+        {home?.close ? (
+          <>
+            <p className="firm-progress"><b>{home.close.counts.completion}%</b> of the checklist is done across {home.close.counts.clients} clients. <b>{home.close.counts.overdue}</b> are overdue. <b>{home.close.counts.outstanding}</b> checks are still open.</p>
+            {home.close.clients.filter((client) => client.overdue || client.outstanding).slice(0, 8).length ? (
+              <ul className="plain-list">
+                {home.close.clients.filter((client) => client.overdue || client.outstanding).slice(0, 8).map((client) => (
+                  <li key={client.id}>
+                    <button type="button" className="text-button" onClick={() => onOpenClose ? onOpenClose(client.id) : onOpenClient(client.id)}>{client.name}</button>
+                    <small>{client.statusLabel} · {client.completion}% · {client.outstanding} open{client.overdue ? " · overdue" : ""}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="books-note">{home.close.counts.clients ? "No close is overdue and no check is open." : "No clients to close."}</p>}
           </>
         ) : <p className="books-note">Loading the firm…</p>}
       </section>

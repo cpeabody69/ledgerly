@@ -4,6 +4,7 @@ import { accessScope, ensureClientGrants } from "./access.js";
 import { ensureFirmCrm } from "./clients.js";
 import { listRequestHistory } from "./documents.js";
 import { canSeeTeamWork, ROLE_LABEL } from "./permissions.js";
+import { closeBoard } from "./close.js";
 import { ensureWork, workflowSnapshot } from "./work.js";
 
 const MONTHS = [
@@ -13,6 +14,12 @@ const MONTHS = [
 
 function countOf(row) {
   return Number(row?.count || 0);
+}
+
+function closeResult(db, session) {
+  const result = closeBoard(db, session);
+  if (result.error) return null;
+  return result.payload;
 }
 
 function todayIso() {
@@ -211,6 +218,7 @@ export function firmHome(db, session) {
       },
       deadlines: deadlines.slice(0, 12),
       workflow,
+      close: closeResult(db, session),
       workload,
       activity,
       clients: clientRows.filter((row) => row.status !== "archived").map((row) => ({

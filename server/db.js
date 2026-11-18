@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
+import { ensureClose } from "./close.js";
 import { ensureWork } from "./work.js";
 import { ensureBanking } from "./banking.js";
 import { applyProfile, ensureFirmCrm, profileFields } from "./clients.js";
@@ -144,6 +145,7 @@ export function openDatabase(dbPath) {
   ensureQuickBooks(db);
   ensurePayables(db);
   ensureWork(db);
+  ensureClose(db);
   ensureDemoTables(db);
   backfillAccess(db);
   ensureClientGrants(db);
