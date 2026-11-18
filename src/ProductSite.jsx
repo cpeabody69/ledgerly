@@ -55,12 +55,13 @@ export function ProductSite({ path, go, onSession }) {
     return (
       <Frame>
         <h1>Avenue Pro pricing</h1>
-        <p className="lede">Practice and Firm are the two plans. Checkout stays in Stripe test mode, and a live Stripe key is refused. No price is charged from this page.</p>
+        <p className="lede">Three proposed plans. Checkout stays in Stripe test mode, and a live Stripe key is refused. This page does not charge a card. Avenue Pro subscriptions are separate from invoices a firm sends to its clients.</p>
         <ul className="product-list">
-          <li><strong>Practice</strong><span>The plan for a smaller firm. Seats are the Checkout quantity when a test price is configured.</span></li>
-          <li><strong>Firm</strong><span>The plan for a larger firm. It uses its own test price id.</span></li>
+          <li><strong>Solo · $39/month</strong><span>One person. The seat count is fixed at one.</span></li>
+          <li><strong>Practice · $79/month</strong><span>Up to three people.</span></li>
+          <li><strong>Firm · $149/month</strong><span>Up to ten people.</span></li>
         </ul>
-        <p>Leave the Stripe test keys empty until checkout should open. Card numbers are not stored.</p>
+        <p>A signed-in test firm chooses a plan from the subscription screen. Payment failures in test mode mark the subscription past due and keep the books readable. Card numbers are not stored.</p>
       </Frame>
     );
   }

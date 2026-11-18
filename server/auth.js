@@ -60,12 +60,18 @@ export const FISCAL_MONTHS = [
 
 const STEPS = [
   { id: "firm_profile", label: "Complete the firm profile", optional: false },
+  { id: "accounting_preferences", label: "Set accounting preferences", optional: false },
+  { id: "team_invite", label: "Invite a teammate", optional: true },
   { id: "first_client", label: "Add the first client", optional: true },
+  { id: "workspace", label: "Choose the Avenue ledger or a QuickBooks sandbox", optional: true },
+  { id: "sandbox_integration", label: "Confirm the sandbox integration", optional: true },
+  { id: "workflow_templates", label: "Apply the starting workflow templates", optional: true },
   { id: "chart", label: "Configure the chart of accounts", optional: true },
   { id: "sandbox_bank", label: "Connect a sandbox bank account", optional: true },
   { id: "sample_document", label: "Upload a sample document", optional: true },
   { id: "work_queue", label: "Review the Work Queue", optional: true },
   { id: "reports", label: "Explore financial reports", optional: true },
+  { id: "product_tour", label: "Take the optional product tour", optional: true },
 ];
 
 const VIEW_STEPS = new Set(["chart", "work_queue", "reports"]);
@@ -152,6 +158,7 @@ export function ensureAuth(db) {
   addColumn(db, "firms", "accounting_method", "TEXT NOT NULL DEFAULT ''");
   addColumn(db, "firms", "fiscal_year_start", "INTEGER NOT NULL DEFAULT 0");
   addColumn(db, "firms", "created_via", "TEXT NOT NULL DEFAULT 'seed'");
+  addColumn(db, "firms", "books_workspace", "TEXT NOT NULL DEFAULT ''");
   addColumn(db, "client_users", "status", "TEXT NOT NULL DEFAULT 'active'");
   db.exec(`
     CREATE TABLE IF NOT EXISTS memberships (
@@ -369,19 +376,34 @@ export function authConfig(req, options) {
 
 function autoDone(db, firmId, stepId) {
   if (!firmId) return false;
-  if (stepId === "firm_profile") {
+  if (stepId === "firm_profile" || stepId === "accounting_preferences") {
     const firm = db.prepare(
       "SELECT business_type, country, time_zone, accounting_method, fiscal_year_start FROM firms WHERE id = ?",
     ).get(firmId);
-    return Boolean(
+    const profile = Boolean(
       firm
       && lookupOptions(FIRM_BUSINESS_TYPES)[firm.business_type]
       && lookupOptions(COUNTRIES)[firm.country]
       && lookupOptions(TIME_ZONES)[firm.time_zone]
+    );
+    const preferences = Boolean(
+      firm
       && lookupOptions(ACCOUNTING_METHODS)[firm.accounting_method]
       && Number(firm.fiscal_year_start) >= 1
       && Number(firm.fiscal_year_start) <= 12,
     );
+    if (stepId === "accounting_preferences") return preferences;
+    return profile && preferences;
+  }
+  if (stepId === "team_invite") {
+    return countOf(db.prepare("SELECT COUNT(*) AS count FROM users WHERE firm_id = ? AND status != 'deactivated'").get(firmId)) > 1;
+  }
+  if (stepId === "workspace" || stepId === "sandbox_integration") {
+    const firm = db.prepare("SELECT books_workspace FROM firms WHERE id = ?").get(firmId);
+    return firm?.books_workspace === "native" || firm?.books_workspace === "quickbooks";
+  }
+  if (stepId === "workflow_templates" && tableExists(db, "work_schedules")) {
+    return countOf(db.prepare("SELECT COUNT(*) AS count FROM work_schedules WHERE firm_id = ?").get(firmId)) > 0;
   }
   if (stepId === "first_client") {
     return countOf(db.prepare("SELECT COUNT(*) AS count FROM clients WHERE firm_id = ?").get(firmId)) > 0;
@@ -437,7 +459,7 @@ export function onboardingPayload(db, session) {
   const user = db.prepare("SELECT id, email, name, role, firm_id, status FROM users WHERE id = ?").get(session.user_id);
   const firmRow = user?.firm_id
     ? db.prepare(
-      "SELECT id, name, business_type, country, time_zone, accounting_method, fiscal_year_start, created_via, demo FROM firms WHERE id = ?",
+      "SELECT id, name, business_type, country, time_zone, accounting_method, fiscal_year_start, created_via, books_workspace, demo FROM firms WHERE id = ?",
     ).get(user.firm_id)
     : null;
   const clients = firmRow
@@ -455,6 +477,7 @@ export function onboardingPayload(db, session) {
         timeZone: firmRow.time_zone,
         accountingMethod: firmRow.accounting_method,
         fiscalYearStart: Number(firmRow.fiscal_year_start) || null,
+        booksWorkspace: firmRow.books_workspace || "",
         demo: Number(firmRow.demo) === 1,
       }
       : null,
@@ -528,6 +551,12 @@ export function registerFirm(db, input, { devMailbox }) {
   if (body.acceptTerms !== true) return { status: 400, error: "Accept the Terms to create an account." };
   if (body.acceptPrivacy !== true) return { status: 400, error: "Accept the Privacy notice to create an account." };
   if (duplicateAccount(db, email)) return { status: 409, error: "An account with that email already exists." };
+  if (!email.endsWith(".example")) {
+    return {
+      status: 400,
+      error: "Firm onboarding is limited to fictional test accounts until security, accounting, privacy, and business reviews are complete.",
+    };
+  }
   const now = new Date().toISOString();
   const id = randomUUID();
   try {
@@ -707,6 +736,43 @@ export function saveFirmProfile(db, session, input) {
   return { status: 201, payload: onboardingPayload(db, next) };
 }
 
+function fictionalFirm(db, firmId) {
+  const firm = db.prepare("SELECT created_via, demo FROM firms WHERE id = ?").get(firmId);
+  if (!firm || firm.created_via !== "registration" || Number(firm.demo) === 1) return null;
+  return firm;
+}
+
+export function saveWorkspaceChoice(db, session, input) {
+  if (!session?.firm_id || session.portal) return { status: 403, error: "Create the firm profile first." };
+  if (!fictionalFirm(db, session.firm_id)) {
+    return { status: 403, error: "Workspace setup is limited to a fictional test firm." };
+  }
+  const mode = input?.mode === "quickbooks" ? "quickbooks" : input?.mode === "native" ? "native" : "";
+  if (!mode) return { status: 400, error: "Choose the Avenue ledger or a QuickBooks sandbox workspace." };
+  db.prepare("UPDATE firms SET books_workspace = ? WHERE id = ?").run(mode, session.firm_id);
+  firmAudit(db, session, "onboarding.workspace", { entityType: "firm", entityId: session.firm_id });
+  const payload = session.onboarding ? onboardingPayload(db, session) : { checklist: checklistFor(db, session.firm_id) };
+  return { status: 200, payload };
+}
+
+export async function applyOnboardingTemplates(db, session) {
+  if (!session?.firm_id || session.portal) return { status: 403, error: "Create the firm profile first." };
+  if (!fictionalFirm(db, session.firm_id)) {
+    return { status: 403, error: "Workflow templates during onboarding are limited to a fictional test firm." };
+  }
+  const client = db.prepare("SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1").get(session.firm_id);
+  if (!client) return { status: 400, error: "Add a client before applying templates." };
+  const { assignSchedule } = await import("./work.js");
+  const acting = { ...session, onboarding: false };
+  const keys = ["new-client-onboarding", "monthly-bookkeeping", "bank-reconciliation"];
+  for (const templateKey of keys) {
+    const result = assignSchedule(db, acting, { clientId: client.id, templateKey });
+    if (result.error) return { status: result.status, error: result.error };
+  }
+  const payload = session.onboarding ? onboardingPayload(db, session) : { checklist: checklistFor(db, session.firm_id) };
+  return { status: 200, payload };
+}
+
 export function updateOnboardingStep(db, session, input) {
   if (!session?.firm_id || session.portal) return { status: 403, error: "Create the firm profile first." };
   const step = STEPS.find((item) => item.id === String(input?.step || ""));
@@ -728,6 +794,8 @@ export function enterWorkspace(db, session, startFirmSession) {
   if (!session) return { status: 401, error: "Sign in required." };
   if (!session.onboarding) return { status: 200, payload: null };
   if (!session.firm_id) return { status: 400, error: "Create the firm profile first." };
+  const firm = db.prepare("SELECT demo FROM firms WHERE id = ?").get(session.firm_id);
+  if (Number(firm?.demo) === 1) return { status: 403, error: "The public demo cannot open a production workspace." };
   const blocked = subscriptionBlocksWork(db, session.firm_id);
   if (blocked) return { status: 403, error: blocked };
   const client = db.prepare("SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1").get(session.firm_id);
@@ -1118,6 +1186,26 @@ export async function handleAuthRoutes(req, res, db, ctx) {
     return true;
   }
 
+  if (method === "POST" && pathname === "/api/onboarding/workspace") {
+    if (!session || session.portal) {
+      send(res, 401, { error: "Sign in required." });
+      return true;
+    }
+    const result = saveWorkspaceChoice(db, session, await ctx.readBody(req));
+    send(res, result.status, result.payload || { error: result.error });
+    return true;
+  }
+
+  if (method === "POST" && pathname === "/api/onboarding/templates") {
+    if (!session || session.portal) {
+      send(res, 401, { error: "Sign in required." });
+      return true;
+    }
+    const result = await applyOnboardingTemplates(db, session);
+    send(res, result.status, result.payload || { error: result.error });
+    return true;
+  }
+
   if (method === "POST" && pathname === "/api/onboarding/step") {
     if (!session || session.portal) {
       send(res, 401, { error: "Sign in required." });
@@ -1178,11 +1266,15 @@ export function onboardingPassthrough(method, pathname) {
   if ((method === "GET" || method === "DELETE") && pathname === "/api/session") return true;
   if ((method === "GET" || method === "POST") && pathname === "/api/clients") return true;
   if (method === "POST" && pathname === "/api/documents") return true;
+  if (method === "POST" && pathname === "/api/members") return true;
+  if (method === "POST" && (pathname === "/api/onboarding/workspace" || pathname === "/api/onboarding/templates")) return true;
   if (method === "GET" && pathname === "/api/subscription") return true;
   if (method === "POST" && (
     pathname === "/api/subscription/checkout"
     || pathname === "/api/subscription/checkout/confirm"
     || pathname === "/api/subscription/refresh"
+    || pathname === "/api/subscription/plan"
+    || pathname === "/api/subscription/cancel"
     || pathname === "/api/subscription/seats"
     || pathname === "/api/subscription/invoice"
   )) return true;

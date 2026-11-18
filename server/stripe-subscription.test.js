@@ -96,6 +96,7 @@ function saveEnv(keys) {
 function useTestStripe() {
   process.env.STRIPE_SECRET_KEY = SECRET;
   process.env.STRIPE_WEBHOOK_SECRET = WEBHOOK;
+  process.env.STRIPE_PRICE_SOLO = "price_solo_test";
   process.env.STRIPE_PRICE_PRACTICE = "price_practice_test";
   process.env.STRIPE_PRICE_FIRM = "price_firm_test";
 }
@@ -103,6 +104,7 @@ function useTestStripe() {
 function clearStripe() {
   delete process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
+  delete process.env.STRIPE_PRICE_SOLO;
   delete process.env.STRIPE_PRICE_PRACTICE;
   delete process.env.STRIPE_PRICE_FIRM;
 }
@@ -174,13 +176,25 @@ function stripeDouble() {
       };
     }
     if (request.method === "POST" && request.path === "/subscriptions/sub_test_gate") {
+      const price = request.params["items[0][price]"] || "price_practice_test";
+      const planId = price === "price_firm_test" ? "firm" : price === "price_solo_test" ? "solo" : "practice";
       return {
         id: "sub_test_gate",
         object: "subscription",
         customer: "cus_test_gate",
         status: "active",
-        metadata: { firm_id: checkout["metadata[firm_id]"], plan_id: "practice" },
-        items: { data: [{ id: "si_test_gate", quantity: Number(request.params["items[0][quantity]"]), price: { id: "price_practice_test" } }] },
+        metadata: { firm_id: checkout["metadata[firm_id]"], plan_id: planId },
+        items: { data: [{ id: "si_test_gate", quantity: Number(request.params["items[0][quantity]"]), price: { id: price } }] },
+      };
+    }
+    if (request.method === "DELETE" && request.path === "/subscriptions/sub_test_gate") {
+      return {
+        id: "sub_test_gate",
+        object: "subscription",
+        customer: "cus_test_gate",
+        status: "canceled",
+        metadata: { firm_id: checkout?.["metadata[firm_id]"] || "", plan_id: "firm" },
+        items: { data: [{ id: "si_test_gate", quantity: 10, price: { id: "price_firm_test" } }] },
       };
     }
     throw new Error(`Unexpected Stripe call ${request.method} ${request.path}`);
@@ -210,8 +224,8 @@ function subscriptionEvent(firmId, status) {
         object: "subscription",
         customer: "cus_test_gate",
         status: status === "canceled" ? "canceled" : status,
-        metadata: { firm_id: firmId, plan_id: "practice" },
-        items: { data: [{ id: "si_test_gate", quantity: 3, price: { id: "price_practice_test" } }] },
+        metadata: { firm_id: firmId, plan_id: "firm" },
+        items: { data: [{ id: "si_test_gate", quantity: 10, price: { id: "price_firm_test" } }] },
       },
     },
   };
@@ -227,7 +241,7 @@ test("stripe signatures reject a mismatch and a stale timestamp", () => {
 });
 
 test("a new firm stays closed until Stripe test checkout, and sample firms stay open", async () => {
-  const restore = saveEnv(["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_PRACTICE", "STRIPE_PRICE_FIRM"]);
+  const restore = saveEnv(["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_SOLO", "STRIPE_PRICE_PRACTICE", "STRIPE_PRICE_FIRM"]);
   clearStripe();
   const stripe = stripeDouble();
   try {
@@ -287,6 +301,9 @@ test("a new firm stays closed until Stripe test checkout, and sample firms stay 
       assert.equal(stripe.calls.length, 0);
 
       useTestStripe();
+      const soloSeats = await post(jar, base, "/api/subscription/checkout", { planId: "solo", seatCount: 2 });
+      assert.equal(soloSeats.response.status, 400);
+      assert.match(soloSeats.body.error, /1 seat/);
       const checkout = await post(jar, base, "/api/subscription/checkout", { planId: "practice", seatCount: 3 });
       assert.equal(checkout.response.status, 201);
       assert.equal(checkout.body.url, "https://checkout.stripe.com/c/pay/cs_test_gate");
@@ -362,9 +379,11 @@ test("a new firm stays closed until Stripe test checkout, and sample firms stay 
       assert.equal(third.response.status, 409);
       assert.match(third.body.error, /open seats|upgrade/i);
 
-      const upgraded = await post(jar, base, "/api/subscription/seats", { seatCount: 4 });
+      const upgraded = await post(jar, base, "/api/subscription/plan", { planId: "firm" });
       assert.equal(upgraded.response.status, 200);
-      assert.equal(upgraded.body.subscription.seatLimit, 4);
+      assert.equal(upgraded.body.subscription.planName, "Firm");
+      assert.equal(upgraded.body.subscription.seatLimit, 10);
+      assert.equal(upgraded.body.subscription.separateFromClientBilling, true);
       const fourth = await post(jar, base, "/api/members", {
         name: "Alex Kim",
         email: "alex@pine-ledger.example",
@@ -372,10 +391,30 @@ test("a new firm stays closed until Stripe test checkout, and sample firms stay 
         password: "ledgerly-alex-1",
       });
       assert.equal(fourth.response.status, 201);
+      const downgrade = await post(jar, base, "/api/subscription/plan", { planId: "practice" });
+      assert.equal(downgrade.response.status, 400);
+      assert.match(downgrade.body.error, /3 seats/);
 
+      const invoiceFailed = await sendWebhook(base, {
+        id: "evt_invoice_failed",
+        type: "invoice.payment_failed",
+        data: {
+          object: {
+            object: "invoice",
+            customer: "cus_test_gate",
+            subscription: "sub_test_gate",
+            metadata: { firm_id: firmId },
+          },
+        },
+      });
+      assert.equal(invoiceFailed.response.status, 200);
+      assert.equal(invoiceFailed.body.status, "past_due");
       const pastDue = await sendWebhook(base, subscriptionEvent(firmId, "past_due"));
       assert.equal(pastDue.response.status, 200);
       assert.equal(pastDue.body.status, "past_due");
+      const replay = await sendWebhook(base, subscriptionEvent(firmId, "past_due"));
+      assert.equal(replay.response.status, 200);
+      assert.equal(replay.body.duplicate, true);
       const readable = await jar.fetch(`${base}/api/ledger`);
       assert.equal(readable.status, 200);
       const journalBlocked = await post(jar, base, "/api/journal-entries", {});
@@ -417,6 +456,9 @@ test("a new firm stays closed until Stripe test checkout, and sample firms stay 
       });
       assert.equal(postedWork.response.status, 201);
 
+      const canceledByApi = await post(jar, base, "/api/subscription/cancel", {});
+      assert.equal(canceledByApi.response.status, 200);
+      assert.equal(canceledByApi.body.subscription.status, "canceled");
       const canceled = await sendWebhook(base, subscriptionEvent(firmId, "canceled"));
       assert.equal(canceled.body.status, "canceled");
       const clientBlocked = await post(jar, base, "/api/clients", {

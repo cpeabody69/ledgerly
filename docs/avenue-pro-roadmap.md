@@ -87,17 +87,29 @@ The client view shows year-to-date revenue, expenses, and net against the same d
 
 Limits: cash is the balance of asset accounts coded 1000 or named cash, checking, or bank. It is not a bank-feed balance and it does not move money. Duplicate detection matches date, amount, and description. An unusual line is at least three times the median of five or more lines. There is no score. The screen was not exercised in a browser.
 
+## Phase 13 — SaaS subscription management
+
+Implemented on 18 November 2026. Three fixed test-mode plans:
+
+- Solo, $39 per month, 1 seat
+- Practice, $79 per month, 3 seats
+- Firm, $149 per month, 10 seats
+
+The public pricing page lists those prices and says checkout does not charge a card. A signed-in owner starts Stripe test checkout for one plan. The server stores the plan, seat limit, and status. New clients, journal entries, invoices, bills, and invites stay blocked until the status is active. Past due and canceled keep the books readable and block new work. Upgrade and downgrade change the Stripe test price. A downgrade is refused when more people can sign in than the smaller plan includes. Cancel calls Stripe test mode and marks the firm canceled. Webhook deliveries with an event id are stored in `subscription_webhook_events` and a repeat is ignored. Live Stripe keys are still refused. Firm subscription rows stay off client invoices and off the ledger. Sample firms remain billing-exempt.
+
+Limits: prices are labels in the product. Stripe still needs test price ids in `STRIPE_PRICE_SOLO`, `STRIPE_PRICE_PRACTICE`, and `STRIPE_PRICE_FIRM` before checkout opens. No live charge was made. A webhook that arrives without an event id is processed again. The idempotency row is written before the subscription update, so a crash between those two steps can drop a retry. Proration is requested from Stripe and is not calculated here. There is no Stripe Customer Portal. Client billing is a separate table and was not changed.
+
+## Phase 14 — Firm onboarding
+
+Implemented on 18 November 2026 for fictional test accounts only. New firm registration is refused unless the email ends in `.example`. The checklist covers the firm profile, accounting method and fiscal year, a teammate invite, the first client, an Avenue ledger or QuickBooks sandbox choice, sandbox confirmation, three starting workflow templates, the existing chart, bank, document, queue, and report steps, and an optional three-step tour. The public demo still uses its own copied database. Demo visitors are blocked from firm creation, workspace entry, subscription checkout, plan changes, cancellation, and member invites.
+
+Limits: onboarding is not a production workspace. QuickBooks sandbox selection records the choice. It does not complete an Intuit OAuth connection by itself. The teammate form creates a firm user with the password typed on that screen. It does not send mail. The tour highlights Firm, Clients, and Work Queue and does not change books. Two public demo copies still share the template firm id because posted journal rows cannot be rewritten. They are separate database files, and a demo session cannot read the practice firm. That isolation test still fails on the shared id.
+
+Test run on 18 November 2026, America/New_York, with Node 22 and `node --experimental-sqlite --test` on the full `npm test` list: 94 passed and 2 failed. The banking import test failed once because a random id contained the digits 8420, then passed when run again. The public demo isolation test failed because the two visitor copies share one firm id. Stripe checkout, plan change, downgrade refusal, invoice payment failure, duplicate webhook, cancellation, registration, and the new onboarding steps passed.
+
 ## Phases not started
 
 These are the intended order. Do not skip one and call the product finished.
-
-### Phase 13 — Avenue subscription plans
-
-Test-mode Stripe checkout exists in `server/subscription.js`. Plans, limits, and entitlements are not a single configuration. Do not turn on live billing.
-
-### Phase 14 — Firm onboarding
-
-Registration and email verification exist. A guided checklist, accounting-system choice, and a demo that never needs a real bank do not exist as one flow.
 
 ### Phase 15 — Avenue Pro branding
 

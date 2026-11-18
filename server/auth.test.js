@@ -129,6 +129,9 @@ test("registration, verification, sessions, invitations, roles, and isolation", 
       assert.equal(duplicate.response.status, 409);
       const existing = await post(jar, base, "/api/register", registrationBody({ email: firms.northstar.owner.email, name: "Someone Else" }));
       assert.equal(existing.response.status, 409);
+      const liveAccount = await post(jar, base, "/api/register", registrationBody({ email: "owner@real-firm.test", name: "Live Owner" }));
+      assert.equal(liveAccount.response.status, 400);
+      assert.match(liveAccount.body.error, /fictional test accounts/);
 
       const early = await post(jar, base, "/api/session", { email: owner.email, password: owner.password });
       assert.equal(early.response.status, 403);
@@ -188,6 +191,7 @@ test("registration, verification, sessions, invitations, roles, and isolation", 
       assert.equal(created.body.user.role, "owner");
       const profile = created.body.checklist.steps.find((step) => step.id === "firm_profile");
       assert.equal(profile.status, "complete");
+      assert.equal(created.body.checklist.steps.find((step) => step.id === "accounting_preferences").status, "complete");
 
       const skipped = await post(jar, base, "/api/onboarding/step", { step: "sandbox_bank", status: "skipped" });
       assert.equal(skipped.response.status, 200);
@@ -226,6 +230,15 @@ test("registration, verification, sessions, invitations, roles, and isolation", 
       assert.equal(client.response.status, 201);
       assert.equal(client.body.session.checklist.steps.find((step) => step.id === "first_client").status, "complete");
       const clientId = client.body.client.id;
+      const workspace = await post(jar, base, "/api/onboarding/workspace", { mode: "native" });
+      assert.equal(workspace.response.status, 200);
+      assert.equal(workspace.body.firm.booksWorkspace, "native");
+      assert.equal(workspace.body.checklist.steps.find((step) => step.id === "workspace").status, "complete");
+      const templates = await post(jar, base, "/api/onboarding/templates", {});
+      assert.equal(templates.response.status, 200);
+      assert.equal(templates.body.checklist.steps.find((step) => step.id === "workflow_templates").status, "complete");
+      const tour = await post(jar, base, "/api/onboarding/step", { step: "product_tour", status: "complete" });
+      assert.equal(tour.body.checklist.steps.find((step) => step.id === "product_tour").status, "complete");
 
       const entered = await post(jar, base, "/api/onboarding/enter", {});
       assert.equal(entered.response.status, 200);

@@ -8,6 +8,7 @@ import {
   redact,
   stripeRequest,
   stripeSetup,
+  SUBSCRIPTION_PLANS,
   verifyStripeSignature,
 } from "./stripe.js";
 
@@ -16,10 +17,7 @@ const DEFAULT_SEAT_LIMIT = 5;
 const MAX_SEAT_LIMIT = 100;
 const STATUSES = new Set(["incomplete", "active", "past_due", "canceled"]);
 
-const PLANS = {
-  practice: { id: "practice", name: "Practice" },
-  firm: { id: "firm", name: "Firm" },
-};
+const PLANS = Object.fromEntries(SUBSCRIPTION_PLANS.map((plan) => [plan.id, plan]));
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS firm_subscriptions (
@@ -32,6 +30,12 @@ CREATE TABLE IF NOT EXISTS firm_subscriptions (
   stripe_subscription_id TEXT,
   stripe_price_id TEXT,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subscription_webhook_events (
+  event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  received_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS firm_billing_events (
@@ -139,7 +143,9 @@ export function subscriptionSummary(db, firmId) {
   const billingExempt = Number(row.billing_exempt) === 1;
   const status = STATUSES.has(row.status) ? row.status : "incomplete";
   return {
+    planId: Object.values(PLANS).find((plan) => plan.name === row.plan_name)?.id || "",
     planName: row.plan_name,
+    monthlyCents: Object.values(PLANS).find((plan) => plan.name === row.plan_name)?.monthlyCents || 0,
     seatLimit,
     seatsUsed: used,
     seatsOpen: Math.max(0, seatLimit - used),
@@ -147,6 +153,7 @@ export function subscriptionSummary(db, firmId) {
     billingExempt,
     allowsWork: billingExempt || status === "active",
     hasStripeSubscription: Boolean(row.stripe_subscription_id),
+    separateFromClientBilling: true,
   };
 }
 
@@ -159,7 +166,7 @@ export function subscriptionBlocksWork(db, firmId) {
   if (summary.status === "canceled") {
     return "This firm's Ledgerly subscription is canceled. Books stay readable. New clients, journal entries, invoices, bills, and invites stay blocked until a plan is active.";
   }
-  return "Choose a Ledgerly plan and seat count before creating new work.";
+  return "Choose an Avenue Pro plan before creating new work.";
 }
 
 export function subscriptionWriteError(db, session, method, pathname) {
@@ -284,9 +291,22 @@ async function callStripe(stripeRequestImpl, request) {
 }
 
 function planNameFor(setup, priceId, planId) {
-  if (priceId && priceId === setup.prices.practice) return "Practice";
-  if (priceId && priceId === setup.prices.firm) return "Firm";
+  if (priceId) {
+    const match = Object.values(PLANS).find((plan) => setup.prices[plan.id] === priceId);
+    if (match) return match.name;
+  }
   return PLANS[planId]?.name || "";
+}
+
+function claimWebhook(db, event) {
+  const eventId = String(event?.id || "").trim();
+  if (!eventId) return false;
+  const existing = db.prepare("SELECT event_id FROM subscription_webhook_events WHERE event_id = ?").get(eventId);
+  if (existing) return true;
+  db.prepare(
+    "INSERT INTO subscription_webhook_events (event_id, event_type, received_at) VALUES (?, ?, ?)",
+  ).run(eventId, String(event?.type || ""), new Date().toISOString());
+  return false;
 }
 
 function priceIdOf(item) {
@@ -379,6 +399,8 @@ export function applyStripeEvent(db, event) {
   const type = event?.type;
   const object = event?.data?.object;
   if (!type || !object) return { status: 400, error: "Stripe event is not valid." };
+  ensureSubscription(db);
+  if (claimWebhook(db, event)) return { status: 200, payload: { received: true, duplicate: true } };
   if (type === "checkout.session.completed") {
     const paid = object.payment_status === "paid" || object.payment_status === "no_payment_required";
     const seatCount = Number(object.metadata?.seat_count);
@@ -444,7 +466,7 @@ export async function startCheckout(db, session, input, { origin, stripeRequest:
   const summary = subscriptionSummary(db, session.firm_id);
   if (summary.billingExempt) return fail(409, "This sample firm stays usable without a Stripe subscription.");
   if (summary.status === "active" && summary.hasStripeSubscription) {
-    return fail(409, "This firm already has a test subscription. Change the seat count to upgrade it.");
+    return fail(409, "This firm already has a test subscription. Change the plan to upgrade or downgrade it.");
   }
   if (summary.status === "past_due") {
     return fail(409, "This subscription is past due. Pay the open test invoice before starting another checkout.");
@@ -455,9 +477,15 @@ export async function startCheckout(db, session, input, { origin, stripeRequest:
   const plan = PLANS[String(input?.planId || "")];
   if (!plan) return fail(400, "Choose a plan.");
   const price = setup.prices[plan.id];
-  if (!price) return fail(503, MISSING_STRIPE_KEYS);
-  const seatCount = parseSeatLimit(input?.seatCount);
-  if (seatCount === null || seatCount < 1 || seatCount > MAX_SEAT_LIMIT) return fail(400, "Enter a whole number of seats.");
+  if (!price) return fail(503, `${plan.name} does not have a Stripe test price yet.`);
+  const requested = input?.seatCount;
+  if (requested !== undefined && requested !== null && String(requested) !== "") {
+    const parsed = parseSeatLimit(requested);
+    if (parsed !== plan.seats) {
+      return fail(400, `${plan.name} includes ${plan.seats} ${plan.seats === 1 ? "seat" : "seats"}.`);
+    }
+  }
+  const seatCount = plan.seats;
   if (seatCount < summary.seatsUsed) return fail(400, "Seats cannot be fewer than the people who can already sign in.");
   const user = db.prepare("SELECT email FROM users WHERE id = ?").get(session.user_id);
   const params = {
@@ -558,20 +586,37 @@ export async function refreshStripeSubscription(db, session, { stripeRequest: st
   return readSubscription(db, session);
 }
 
-export async function updateStripeSeats(db, session, input, { stripeRequest: stripeRequestImpl } = {}) {
+export async function updateStripeSeats(db, session, input, options = {}) {
+  const summary = subscriptionSummary(db, session.firm_id);
+  if (summary.billingExempt) {
+    const denied = manager(db, session);
+    if (denied) return denied;
+    return updateSeats(db, session, input);
+  }
+  const plan = Object.values(PLANS).find((item) => item.seats === parseSeatLimit(input?.seatCount ?? input?.seatLimit));
+  if (!plan) return fail(400, "Seat counts come from the plan. Choose Solo, Practice, or Firm.");
+  return changePlan(db, session, { planId: plan.id }, options);
+}
+
+export async function changePlan(db, session, input, { origin, stripeRequest: stripeRequestImpl } = {}) {
   const denied = manager(db, session);
   if (denied) return denied;
   const summary = subscriptionSummary(db, session.firm_id);
-  if (summary.billingExempt) return updateSeats(db, session, input);
-  if (summary.status !== "active" || !summary.hasStripeSubscription) {
-    return fail(409, "An active test subscription is required before changing seats.");
+  if (summary.billingExempt) return fail(409, "This sample firm stays usable without a Stripe subscription.");
+  const plan = PLANS[String(input?.planId || "")];
+  if (!plan) return fail(400, "Choose a plan.");
+  if (plan.seats < summary.seatsUsed) {
+    return fail(400, `${plan.name} includes ${plan.seats} seats. Deactivate people before moving to that plan.`);
   }
-  const seatCount = parseSeatLimit(input?.seatCount ?? input?.seatLimit);
-  if (seatCount === null || seatCount < 1 || seatCount > MAX_SEAT_LIMIT) return fail(400, "Enter a whole number of seats.");
-  if (seatCount < summary.seatsUsed) return fail(400, "Seats cannot be fewer than the people who can already sign in.");
+  if (summary.status !== "active" || !summary.hasStripeSubscription) {
+    return startCheckout(db, session, { planId: plan.id }, { origin, stripeRequest: stripeRequestImpl });
+  }
+  if (summary.planId === plan.id) return fail(409, "This firm is already on that plan.");
   const setup = stripeSetup();
   const missing = keysProblem(setup);
   if (missing) return missing;
+  const price = setup.prices[plan.id];
+  if (!price) return fail(503, `${plan.name} does not have a Stripe test price yet.`);
   const row = db.prepare("SELECT stripe_subscription_id FROM firm_subscriptions WHERE firm_id = ?").get(session.firm_id);
   let stripeSub;
   try {
@@ -586,15 +631,50 @@ export async function updateStripeSeats(db, session, input, { stripeRequest: str
       path: `/subscriptions/${encodeURIComponent(row.stripe_subscription_id)}`,
       params: {
         "items[0][id]": item.id,
-        "items[0][quantity]": String(seatCount),
+        "items[0][price]": price,
+        "items[0][quantity]": String(plan.seats),
+        "metadata[firm_id]": session.firm_id,
+        "metadata[plan_id]": plan.id,
+        "metadata[seat_count]": String(plan.seats),
         proration_behavior: "create_prorations",
       },
     });
   } catch (error) {
     return stripeFailure(error);
   }
+  stripeSub.metadata = {
+    ...(stripeSub.metadata || {}),
+    firm_id: session.firm_id,
+    plan_id: plan.id,
+    seat_count: String(plan.seats),
+  };
   applyStripeObject(db, stripeSub);
-  audit(db, session, "subscription.seats", session.firm_id);
+  audit(db, session, "subscription.plan", session.firm_id);
+  return readSubscription(db, session);
+}
+
+export async function cancelSubscription(db, session, { stripeRequest: stripeRequestImpl } = {}) {
+  const denied = manager(db, session);
+  if (denied) return denied;
+  const summary = subscriptionSummary(db, session.firm_id);
+  if (summary.billingExempt) return fail(409, "This sample firm stays usable without a Stripe subscription.");
+  const row = db.prepare("SELECT stripe_subscription_id FROM firm_subscriptions WHERE firm_id = ?").get(session.firm_id);
+  if (!row?.stripe_subscription_id) return fail(409, "This firm does not have a test subscription to cancel.");
+  if (summary.status === "canceled") return fail(409, "This subscription is already canceled.");
+  const setup = stripeSetup();
+  const missing = keysProblem(setup);
+  if (missing) return missing;
+  let stripeSub;
+  try {
+    stripeSub = await callStripe(stripeRequestImpl, {
+      method: "DELETE",
+      path: `/subscriptions/${encodeURIComponent(row.stripe_subscription_id)}`,
+    });
+  } catch (error) {
+    return stripeFailure(error);
+  }
+  applyStripeObject(db, { ...stripeSub, status: "canceled", metadata: { firm_id: session.firm_id, ...(stripeSub?.metadata || {}) } }, "canceled");
+  audit(db, session, "subscription.canceled", session.firm_id);
   return readSubscription(db, session);
 }
 

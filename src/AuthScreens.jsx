@@ -495,6 +495,7 @@ export function OnboardingScreen({ session, onSession, go }) {
   });
   const [client, setClient] = useState({ name: "", legalName: "", industry: "" });
   const [invite, setInvite] = useState({ name: "", email: "" });
+  const [teammate, setTeammate] = useState({ name: "", email: "", password: "" });
   const [fileName, setFileName] = useState("sample-note.txt");
 
   useEffect(() => {
@@ -603,6 +604,57 @@ export function OnboardingScreen({ session, onSession, go }) {
     }
   }
 
+  async function inviteTeammate() {
+    setPending(true);
+    setError("");
+    try {
+      await post("/api/members", {
+        name: teammate.name,
+        email: teammate.email,
+        role: "accountant",
+        password: teammate.password,
+      });
+      setTeammate({ name: "", email: "", password: "" });
+      const refreshed = await readJson(await fetch("/api/session"));
+      if (refreshed.response.ok) onSession(refreshed.body);
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function chooseWorkspace(mode) {
+    setPending(true);
+    setError("");
+    try {
+      const payload = await post("/api/onboarding/workspace", { mode });
+      onSession(payload);
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function applyTemplates() {
+    setPending(true);
+    setError("");
+    try {
+      const payload = await post("/api/onboarding/templates", {});
+      onSession(payload);
+    } catch (caught) {
+      setError(caught.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function startTour() {
+    window.sessionStorage.setItem("avenue-onboarding-tour", "1");
+    setStep("product_tour", "complete");
+  }
+
   async function enter() {
     setPending(true);
     setError("");
@@ -624,7 +676,7 @@ export function OnboardingScreen({ session, onSession, go }) {
         <div className="auth-wide gate-card">
           <Brand />
           <h1>{session.firm.name}</h1>
-          <p className="lede">Choose a plan and a seat count. New work stays closed until the Stripe test subscription is active. No real charge is made.</p>
+          <p className="lede">Choose Solo, Practice, or Firm. New work stays closed until the Stripe test subscription is active. No real charge is made. This subscription is separate from client invoices.</p>
           <SubscribeGate onSession={onSession} />
           {!session.onboarding ? <button className="button ghost" type="button" onClick={() => go("/")}>Back to the books</button> : null}
         </div>
@@ -637,7 +689,7 @@ export function OnboardingScreen({ session, onSession, go }) {
       <form className="auth-wide" onSubmit={firmReady ? (event) => event.preventDefault() : saveFirm}>
         <Brand />
         <h1>{firmReady ? session.firm.name : "Set up the firm"}</h1>
-        <p className="lede">You are the organization owner. Optional checklist steps can be skipped and resumed later.</p>
+        <p className="lede">You are the organization owner. This onboarding is for a fictional test firm until security, accounting, privacy, and business reviews are complete. Optional checklist steps can be skipped and resumed later. The public demo cannot open this workspace.</p>
         {!firmReady ? (
           <>
             <Field label="Firm name">
@@ -700,6 +752,27 @@ export function OnboardingScreen({ session, onSession, go }) {
               <input value={client.industry} onChange={(event) => setClient({ ...client, industry: event.target.value })} />
             </Field>
             <button className="button secondary" type="button" onClick={addClient} disabled={pending || !client.name.trim()}>Add client</button>
+            <h2>Invite a teammate</h2>
+            <Field label="Teammate name">
+              <input value={teammate.name} onChange={(event) => setTeammate({ ...teammate, name: event.target.value })} />
+            </Field>
+            <Field label="Teammate email">
+              <input type="email" value={teammate.email} onChange={(event) => setTeammate({ ...teammate, email: event.target.value })} />
+            </Field>
+            <Field label="Temporary password">
+              <input type="password" value={teammate.password} onChange={(event) => setTeammate({ ...teammate, password: event.target.value })} />
+            </Field>
+            <button className="button secondary" type="button" onClick={inviteTeammate} disabled={pending || !teammate.name.trim() || !teammate.email.includes("@") || teammate.password.length < 8}>Invite teammate</button>
+            <h2>Workspace</h2>
+            <p className="books-note">Choose the Avenue ledger or a QuickBooks sandbox connection. A production QuickBooks company is not opened from onboarding.</p>
+            <div className="product-actions">
+              <button className="button secondary" type="button" onClick={() => chooseWorkspace("native")} disabled={pending}>Use the Avenue ledger</button>
+              <button className="button secondary" type="button" onClick={() => chooseWorkspace("quickbooks")} disabled={pending}>Use QuickBooks sandbox</button>
+            </div>
+            {session.firm?.booksWorkspace ? <p className="books-note">Selected: {session.firm.booksWorkspace === "quickbooks" ? "QuickBooks sandbox" : "Avenue ledger"}.</p> : null}
+            <h2>Starting workflows</h2>
+            <button className="button secondary" type="button" onClick={applyTemplates} disabled={pending || !session.clients?.length}>Apply workflow templates</button>
+            <button className="button ghost" type="button" onClick={() => startTour()}>Start the optional tour</button>
             {session.clients?.length ? (
               <>
                 <h2>Invite the client portal</h2>
@@ -728,14 +801,67 @@ export function OnboardingScreen({ session, onSession, go }) {
   );
 }
 
+const TOUR_STOPS = ["Firm", "Clients", "Work Queue"];
+
 export function ChecklistBanner({ session, go }) {
   const steps = session.checklist?.steps || [];
   const open = steps.filter((step) => step.status !== "complete");
-  if (!open.length) return null;
+  const [tourIndex, setTourIndex] = useState(() => (window.sessionStorage.getItem("avenue-onboarding-tour") === "1" ? 0 : -1));
+  const [spot, setSpot] = useState(null);
+  const label = TOUR_STOPS[tourIndex] || "";
+
+  useEffect(() => {
+    if (tourIndex < 0) {
+      setSpot(null);
+      return undefined;
+    }
+    const node = document.querySelector(`[data-tour="${label}"]`);
+    if (!node) {
+      setSpot(null);
+      return undefined;
+    }
+    const place = () => {
+      const rect = node.getBoundingClientRect();
+      setSpot({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [label, tourIndex]);
+
+  function closeTour() {
+    window.sessionStorage.removeItem("avenue-onboarding-tour");
+    setTourIndex(-1);
+  }
+
+  if (!open.length && tourIndex < 0) return null;
   return (
-    <div className="onboarding-banner">
-      <span>{open.length} onboarding {open.length === 1 ? "step" : "steps"} still open. Skipped steps can be resumed.</span>
-      <button className="button secondary" type="button" onClick={() => go("/onboarding")}>Resume checklist</button>
-    </div>
+    <>
+      {open.length ? (
+        <div className="onboarding-banner">
+          <span>{open.length} onboarding {open.length === 1 ? "step" : "steps"} still open. Skipped steps can be resumed.</span>
+          <button className="button secondary" type="button" onClick={() => go("/onboarding")}>Resume checklist</button>
+        </div>
+      ) : null}
+      {tourIndex >= 0 ? (
+        <div className="tour-layer">
+          {spot ? <div className="tour-hole" style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height }} /> : null}
+          <div className="tour-tip" role="dialog" aria-label="Product tour" style={{ top: 72, left: 272, width: 320 }}>
+            <p className="tour-progress">Step {tourIndex + 1} of {TOUR_STOPS.length}</p>
+            <h2>{label}</h2>
+            <p>This tour only points at the workspace. It does not change books, connect a bank, or take a payment.</p>
+            <div className="tour-actions">
+              <button className="button secondary" type="button" onClick={() => setTourIndex((index) => Math.max(0, index - 1))} disabled={tourIndex === 0}>Back</button>
+              {tourIndex < TOUR_STOPS.length - 1 ? (
+                <button className="button primary" type="button" onClick={() => setTourIndex((index) => index + 1)}>Next</button>
+              ) : (
+                <button className="button primary" type="button" onClick={closeTour}>Done</button>
+              )}
+              <button className="button ghost" type="button" onClick={closeTour}>Skip</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

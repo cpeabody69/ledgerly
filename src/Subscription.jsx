@@ -37,7 +37,6 @@ export function SubscribeGate({ onSession }) {
   const [stripe, setStripe] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [planId, setPlanId] = useState("practice");
-  const [seatCount, setSeatCount] = useState("1");
   const [error, setError] = useState("");
   const [pending, setPending] = useState("");
 
@@ -54,8 +53,6 @@ export function SubscribeGate({ onSession }) {
         }
         setStripe(body.stripe || { configured: false, notice: "Stripe test keys are not configured. No charge is attempted.", plans: [] });
         setSubscription(body.subscription || null);
-        const used = body.subscription?.seatsUsed || 1;
-        setSeatCount(String(Math.max(used, 1)));
         const first = (body.stripe?.plans || []).find((plan) => plan.available);
         if (first) setPlanId(first.id);
       })
@@ -83,7 +80,7 @@ export function SubscribeGate({ onSession }) {
     const response = await fetch("/api/subscription/checkout", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ planId, seatCount: Number(seatCount) }),
+      body: JSON.stringify({ planId }),
     });
     const body = await readJson(response);
     setPending("");
@@ -132,7 +129,7 @@ export function SubscribeGate({ onSession }) {
     return (
       <div className="subscribe-gate">
         <p className="books-note">{stripe.notice}</p>
-        <p className="books-note">The Stripe test subscription is active. Raising the seat count updates that test subscription.</p>
+        <p className="books-note">The Stripe test subscription is active. Change Solo, Practice, or Firm from Settings. This subscription is separate from client invoices.</p>
       </div>
     );
   }
@@ -157,10 +154,6 @@ export function SubscribeGate({ onSession }) {
               </label>
             ))}
           </div>
-          <label className="field">
-            <span>Seat count</span>
-            <input aria-label="Seat count" inputMode="numeric" value={seatCount} disabled={!stripe.configured || pending === "checkout"} onChange={(event) => setSeatCount(event.target.value)} />
-          </label>
           <button className="button primary" type="submit" disabled={!stripe.configured || pending === "checkout" || !plans.some((plan) => plan.available)}>
             <span>{pending === "checkout" ? "Opening Stripe…" : "Continue to Stripe test checkout"}</span>
           </button>
@@ -229,6 +222,64 @@ export function SubscriptionBanner({ session, go }) {
     <div className="onboarding-banner" role="status">
       <span>{text}</span>
       <button className="button secondary" type="button" onClick={() => go("/onboarding")}>Review plan</button>
+    </div>
+  );
+}
+
+function PlanActions({ session, onSession, onBilling, onError }) {
+  const [plans, setPlans] = useState([]);
+  const [pending, setPending] = useState("");
+
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/subscription")
+      .then(async (response) => {
+        const body = await readJson(response);
+        if (!cancel && response.ok) setPlans(body.stripe?.plans || []);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, [session.firm.id]);
+
+  async function post(url, body) {
+    setPending(url);
+    onError("");
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const payload = await readJson(response);
+    setPending("");
+    if (!response.ok) {
+      onError(payload.error || "The subscription was not changed.");
+      return;
+    }
+    onBilling(payload.billing || []);
+    onSession({ ...session, subscription: payload.subscription });
+  }
+
+  return (
+    <div className="subscription-form">
+      <p className="books-note">Upgrade or downgrade stays in Stripe test mode. A smaller plan is refused while more people can sign in than that plan includes.</p>
+      <div className="plan-choices">
+        {plans.map((plan) => (
+          <button
+            key={plan.id}
+            className={session.subscription?.planId === plan.id ? "button primary" : "button secondary"}
+            type="button"
+            disabled={!plan.available || pending !== "" || session.subscription?.planId === plan.id}
+            onClick={() => post("/api/subscription/plan", { planId: plan.id })}
+          >
+            <span>{plan.name} · ${plan.monthlyCents / 100}/month · {plan.seats} {plan.seats === 1 ? "seat" : "seats"}</span>
+          </button>
+        ))}
+      </div>
+      <button className="button ghost" type="button" disabled={pending !== ""} onClick={() => post("/api/subscription/cancel")}>
+        <span>{pending.endsWith("/cancel") ? "Canceling…" : "Cancel test subscription"}</span>
+      </button>
     </div>
   );
 }
@@ -309,8 +360,8 @@ export function SubscriptionSetting({ session, onSession }) {
     <section className="card subscription-card" aria-label="Firm subscription">
       <div className="card-header">
         <div>
-          <h2>Ledgerly subscription</h2>
-          <p>The plan and seats belong to {session.firm.name}. They are not part of a client’s books.</p>
+          <h2>Avenue Pro subscription</h2>
+          <p>The plan and seats belong to {session.firm.name}. They are not part of a client’s books or client invoices.</p>
         </div>
       </div>
       <div className="subscription-metrics">
@@ -321,14 +372,17 @@ export function SubscriptionSetting({ session, onSession }) {
       </div>
       {exempt ? <p className="books-note">This sample firm stays usable without a Stripe subscription.</p> : null}
       {exempt ? <p className="books-note">{full ? "Every seat is in use, so another person cannot be invited." : "An open seat is required before another person can be invited."}</p> : null}
-      {exempt || subscription?.allowsWork ? (
+      {exempt ? (
         <form className="subscription-form seats" onSubmit={saveSeats}>
           <label className="field">
             <span>Seat count</span>
             <input aria-label="Seat count" inputMode="numeric" value={seatLimit} disabled={!owner || pending === "seats"} onChange={(event) => setSeatLimit(event.target.value)} />
           </label>
-          <button className="button primary" type="submit" disabled={!owner || pending === "seats"}><span>{pending === "seats" ? "Saving…" : exempt ? "Save seats" : "Update seats in Stripe test mode"}</span></button>
+          <button className="button primary" type="submit" disabled={!owner || pending === "seats"}><span>{pending === "seats" ? "Saving…" : "Save seats"}</span></button>
         </form>
+      ) : null}
+      {!exempt && owner && subscription?.status === "active" ? (
+        <PlanActions session={session} onSession={onSession} onBilling={setBilling} onError={setError} />
       ) : null}
       {exempt ? (
         <form className="subscription-form payment" onSubmit={recordPayment}>

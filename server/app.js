@@ -62,6 +62,8 @@ import {
 import { healthBoard, readHealth } from "./health.js";
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import {
+  cancelSubscription,
+  changePlan,
   confirmCheckout,
   handleStripeWebhook,
   openStripeInvoice,
@@ -1556,6 +1558,31 @@ async function handle(req, res, db, options) {
       return;
     }
     const result = await refreshStripeSubscription(db, session, { stripeRequest: options.stripeRequest });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/plan" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await changePlan(db, session, await readBody(req), {
+      origin: requestOrigin(req),
+      stripeRequest: options.stripeRequest,
+    });
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/subscription/cancel" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = await cancelSubscription(db, session, { stripeRequest: options.stripeRequest });
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
     return;

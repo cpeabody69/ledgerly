@@ -41,10 +41,35 @@ export function loadStripeEnv(filePath) {
   }
 }
 
+export const SUBSCRIPTION_PLANS = [
+  {
+    id: "solo",
+    name: "Solo",
+    monthlyCents: 3900,
+    seats: 1,
+    summary: "One person. $39 per month.",
+  },
+  {
+    id: "practice",
+    name: "Practice",
+    monthlyCents: 7900,
+    seats: 3,
+    summary: "Up to three people. $79 per month.",
+  },
+  {
+    id: "firm",
+    name: "Firm",
+    monthlyCents: 14900,
+    seats: 10,
+    summary: "Up to ten people. $149 per month.",
+  },
+];
+
 export function stripeSetup(env = process.env) {
   const secretKey = String(env.STRIPE_SECRET_KEY || "").trim();
   const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || "").trim();
   const prices = {
+    solo: String(env.STRIPE_PRICE_SOLO || "").trim(),
     practice: String(env.STRIPE_PRICE_PRACTICE || "").trim(),
     firm: String(env.STRIPE_PRICE_FIRM || "").trim(),
   };
@@ -72,20 +97,15 @@ export function publicStripe(setup) {
     testMode: true,
     configured: setup.configured,
     notice: setup.notice,
-    plans: [
-      {
-        id: "practice",
-        name: "Practice",
-        summary: "For a smaller firm. The seat count is the Checkout quantity.",
-        available: setup.configured && Boolean(setup.prices.practice),
-      },
-      {
-        id: "firm",
-        name: "Firm",
-        summary: "For a larger firm. The seat count is the Checkout quantity.",
-        available: setup.configured && Boolean(setup.prices.firm),
-      },
-    ],
+    separateFromClientBilling: true,
+    plans: SUBSCRIPTION_PLANS.map((plan) => ({
+      id: plan.id,
+      name: plan.name,
+      summary: plan.summary,
+      monthlyCents: plan.monthlyCents,
+      seats: plan.seats,
+      available: setup.configured && Boolean(setup.prices[plan.id]),
+    })),
   };
 }
 
