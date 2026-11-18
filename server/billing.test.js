@@ -1,10 +1,37 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { firms } from "./accounts.js";
 import { start } from "./app.js";
+import { openDatabase } from "./db.js";
+
+function todayIso() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function addDays(iso, days) {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function expectedIssues(start, interval, today) {
+  const dates = [];
+  let cursor = start;
+  while (cursor && cursor <= today && dates.length < 24) {
+    dates.push(cursor);
+    cursor = addDays(cursor, interval);
+  }
+  return dates;
+}
 
 function cookieJar() {
   const cookies = new Map();
@@ -93,6 +120,9 @@ test("a firm fee invoice stays off the client ledger and needs approval before p
     const approved = await sendJson(olivia, base, "POST", `/api/billing/invoices/${drafted.body.invoice.id}/approve`, {});
     assert.equal(approved.response.status, 200, approved.body.error);
     assert.equal(approved.body.invoice.status, "approved");
+    const aged = await (await olivia.fetch(`${base}/api/billing`)).json();
+    assert.equal(aged.aging.over90, 50000);
+    assert.equal(aged.aging.current, 0);
     const card = await sendJson(olivia, base, "POST", `/api/billing/invoices/${drafted.body.invoice.id}/payments`, {
       amount: "100.00",
       paidOn: "2026-02-01",
@@ -184,8 +214,7 @@ test("hourly billing skips nonbillable time, and a recurring draft is created on
       issueDate: "2026-03-04",
       dueDate: "2026-03-18",
     });
-    assert.equal(clientDraft.response.status, 201, clientDraft.body.error);
-    assert.match(clientDraft.body.firmFeeWarning, /firm fee invoice/);
+    assert.equal(clientDraft.response.status, 400);
     const later = await sendJson(olivia, base, "POST", "/api/time", {
       clientId: creative.id,
       workId: work.body.work.id,
@@ -199,16 +228,14 @@ test("hourly billing skips nonbillable time, and a recurring draft is created on
       dueDate: "2026-03-20",
     });
     assert.equal(clientFirst.response.status, 201, clientFirst.body.error);
-    assert.equal(clientFirst.body.firmFeeWarning, "");
     const firmAfter = await sendJson(olivia, base, "POST", "/api/billing/invoices", {
       clientId: creative.id,
       issueOn: "2026-03-06",
       dueOn: "2026-03-20",
       entryIds: [later.body.entry.id],
     });
-    assert.equal(firmAfter.response.status, 201, firmAfter.body.error);
-    assert.equal(firmAfter.body.invoice.lines[0].alreadyOnClientInvoice, true);
-    assert.match(firmAfter.body.invoice.clientLedgerWarning, /client-ledger invoice/);
+    assert.equal(firmAfter.response.status, 400);
+    const booksBefore = await (await olivia.fetch(`${base}/api/ledger`)).json();
     await sendJson(olivia, base, "POST", `/api/billing/invoices/${hourly.body.invoice.id}/approve`, {});
     const firstTasks = await (await olivia.fetch(`${base}/api/tasks`)).json();
     const secondTasks = await (await olivia.fetch(`${base}/api/tasks`)).json();
@@ -217,23 +244,115 @@ test("hourly billing skips nonbillable time, and a recurring draft is created on
     assert.equal(secondTasks.tasks.find((task) => task.sourceType === "firm_invoice").id, reminder[0].id);
     assert.equal(reminder[0].target.screen, "Billing");
 
+    const desk = await sendJson(olivia, base, "POST", "/api/billing/engagements", {
+      clientId: creative.id,
+      name: "Advisory desk",
+      kind: "hourly",
+      costAmount: "50.00",
+    });
+    const other = await sendJson(olivia, base, "POST", "/api/billing/engagements", {
+      clientId: creative.id,
+      name: "Other desk",
+      kind: "hourly",
+      costAmount: "50.00",
+    });
+    const deskId = desk.body.engagements.find((item) => item.name === "Advisory desk").id;
+    const otherId = other.body.engagements.find((item) => item.name === "Other desk").id;
+    const deskTime = await sendJson(olivia, base, "POST", "/api/time", {
+      clientId: creative.id,
+      workId: work.body.work.id,
+      workedOn: "2026-03-08",
+      hours: "2.00",
+      note: "Desk review",
+      engagementId: deskId,
+    });
+    const otherTime = await sendJson(olivia, base, "POST", "/api/time", {
+      clientId: creative.id,
+      workId: work.body.work.id,
+      workedOn: "2026-03-09",
+      hours: "3.00",
+      note: "Other review",
+      engagementId: otherId,
+    });
+    const deskInvoice = await sendJson(olivia, base, "POST", "/api/billing/invoices", {
+      clientId: creative.id,
+      engagementId: deskId,
+      issueOn: "2026-03-10",
+      dueOn: "2026-03-24",
+      entryIds: [deskTime.body.entry.id],
+    });
+    assert.equal(deskInvoice.response.status, 201, deskInvoice.body.error);
+    assert.equal(deskInvoice.body.invoice.engagementId, deskId);
+    await sendJson(olivia, base, "POST", `/api/billing/invoices/${deskInvoice.body.invoice.id}/approve`, {});
+    const reports = await (await olivia.fetch(`${base}/api/billing/reports`)).json();
+    const deskProfit = reports.profitability.find((row) => row.name === "Advisory desk");
+    const otherProfit = reports.profitability.find((row) => row.name === "Other desk");
+    assert.equal(deskProfit.hoursHundredths, 200);
+    assert.equal(deskProfit.billedCents, 20000);
+    assert.equal(deskProfit.costCents, 10000);
+    assert.equal(deskProfit.profitCents, 10000);
+    assert.equal(otherProfit.hoursHundredths, 300);
+    assert.equal(otherProfit.billedCents, 0);
+    assert.equal(otherProfit.profitCents, -15000);
+    assert.equal(otherTime.body.entry.engagementId, otherId);
+    const booksAfter = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(booksAfter.entries.length, booksBefore.entries.length);
+
     const recurring = await sendJson(olivia, base, "POST", "/api/billing/engagements", {
       clientId: creative.id,
       name: "Retainer",
       kind: "recurring",
       amount: "250.00",
       intervalDays: 30,
-      nextOn: "2026-11-17",
+      nextOn: "2026-09-01",
     });
     assert.equal(recurring.response.status, 200, recurring.body.error);
+    const expected = expectedIssues("2026-09-01", 30, todayIso());
+    const retainer = recurring.body.invoices.filter((invoice) => invoice.memo === "Recurring engagement" && invoice.engagementId === recurring.body.engagements.find((item) => item.name === "Retainer").id);
+    assert.deepEqual(retainer.map((invoice) => invoice.issueOn), expected);
     const once = await sendJson(olivia, base, "POST", "/api/billing/recurring", {});
     const twice = await sendJson(olivia, base, "POST", "/api/billing/recurring", {});
-    assert.equal(once.body.created, 1);
+    assert.equal(once.body.created, 0);
     assert.equal(twice.body.created, 0);
-    const reports = await (await olivia.fetch(`${base}/api/billing/reports`)).json();
-    const books = reports.profitability.find((row) => row.name === "Monthly books");
-    assert.equal(books, undefined);
+    const again = await (await olivia.fetch(`${base}/api/billing`)).json();
+    const retainerAgain = again.invoices.filter((invoice) => invoice.memo === "Recurring engagement");
+    assert.equal(retainerAgain.length, expected.length);
     const advisory = reports.byService.find((row) => row.service === "Advisory");
-    assert.equal(advisory.billedCents, 20000);
+    assert.equal(advisory.billedCents, 40000);
   });
+});
+
+test("an older time table gains billing columns without a new database", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "ledgerly-billing-migrate-"));
+  const dbPath = path.join(dir, "test.sqlite");
+  const planted = new DatabaseSync(dbPath);
+  planted.exec(`CREATE TABLE time_entries (
+    id TEXT PRIMARY KEY,
+    firm_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    staff_id TEXT NOT NULL,
+    worked_on TEXT NOT NULL,
+    hours_hundredths INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    invoice_id TEXT,
+    created_at TEXT NOT NULL
+  )`);
+  planted.close();
+  const opened = openDatabase(dbPath);
+  try {
+    const columns = new Set(opened.prepare("PRAGMA table_info(time_entries)").all().map((column) => column.name));
+    assert.equal(columns.has("billable"), true);
+    assert.equal(columns.has("firm_invoice_id"), true);
+    assert.equal(columns.has("engagement_id"), true);
+    for (const name of ["firm_engagements", "firm_invoices", "firm_invoice_lines", "firm_payments", "firm_credits"]) {
+      assert.ok(opened.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+    }
+    const index = opened.prepare("SELECT sql FROM sqlite_master WHERE name = 'firm_invoices_one_issue'").get();
+    assert.match(index.sql, /engagement_id/);
+  } finally {
+    opened.close();
+    await rm(dir, { recursive: true, force: true });
+  }
 });

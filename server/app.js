@@ -39,6 +39,7 @@ import {
   draftFirmInvoice,
   generateRecurring,
   recordFeePayment,
+  runRecurringBilling,
   saveEngagement,
 } from "./billing.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
@@ -1719,6 +1720,23 @@ export function start(dbPath, port = 0, options = {}) {
   });
   return new Promise((resolve) => {
     server.listen(port, "127.0.0.1", () => {
+      let timer = null;
+      try {
+        runRecurringBilling(db);
+        timer = setInterval(() => {
+          try {
+            runRecurringBilling(db);
+          } catch (error) {
+            console.error(error);
+          }
+        }, 60 * 60 * 1000);
+        if (typeof timer.unref === "function") timer.unref();
+      } catch (error) {
+        console.error(error);
+      }
+      server.on("close", () => {
+        if (timer) clearInterval(timer);
+      });
       resolve({ server, db, port: server.address().port });
     });
   });

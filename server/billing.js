@@ -78,6 +78,12 @@ export function ensureBilling(db) {
   const columns = new Set(db.prepare("PRAGMA table_info(time_entries)").all().map((column) => column.name));
   if (!columns.has("billable")) db.exec("ALTER TABLE time_entries ADD COLUMN billable INTEGER NOT NULL DEFAULT 1");
   if (!columns.has("firm_invoice_id")) db.exec("ALTER TABLE time_entries ADD COLUMN firm_invoice_id TEXT");
+  if (!columns.has("engagement_id")) db.exec("ALTER TABLE time_entries ADD COLUMN engagement_id TEXT");
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS firm_invoices_one_issue
+     ON firm_invoices (firm_id, engagement_id, issue_on)
+     WHERE engagement_id IS NOT NULL AND status != 'void'`,
+  );
 }
 
 function actor(db, session) {
@@ -206,6 +212,7 @@ export function billingBoard(db, session) {
   ensureBilling(db);
   const user = actor(db, session);
   if (!user) return fail(401, "Sign in required.");
+  generateRecurring(db, session);
   const extra = scopeSql(db, session, "firm_invoices.client_id");
   const invoices = db.prepare(
     `SELECT * FROM firm_invoices WHERE firm_id = ? ${extra.sql} ORDER BY issue_on, number`,
@@ -315,8 +322,10 @@ function insertInvoice(db, session, user, client, engagement, issueOn, dueOn, me
     ).run(randomUUID(), session.firm_id, id, line.description, line.service || "", line.amountCents, line.timeEntryId || null);
     if (line.timeEntryId) {
       db.prepare(
-        "UPDATE time_entries SET firm_invoice_id = ? WHERE id = ? AND firm_id = ? AND firm_invoice_id IS NULL",
-      ).run(id, line.timeEntryId, session.firm_id);
+        `UPDATE time_entries
+         SET firm_invoice_id = ?, engagement_id = COALESCE(engagement_id, ?)
+         WHERE id = ? AND firm_id = ? AND firm_invoice_id IS NULL`,
+      ).run(id, engagement?.id || null, line.timeEntryId, session.firm_id);
     }
   }
   auditBill(db, session, "billing.invoice_drafted", client.id, id, number);
@@ -336,14 +345,16 @@ export function draftFirmInvoice(db, session, input) {
   if (due.error) return due;
   let lines = [];
   let engagement = null;
-  if (body.engagementId) {
-    engagement = db.prepare(
-      "SELECT * FROM firm_engagements WHERE id = ? AND firm_id = ? AND client_id = ?",
-    ).get(body.engagementId, session.firm_id, client.id);
-    if (!engagement || engagement.kind === "hourly") return fail(400, "Choose a fixed or recurring engagement.");
-    lines = [{ description: engagement.name, service: engagement.name, amountCents: Number(engagement.amount_cents) }];
-  } else if (Array.isArray(body.entryIds) && body.entryIds.length) {
-    for (const entryId of body.entryIds) {
+  const entryIds = Array.isArray(body.entryIds) ? body.entryIds.filter(Boolean) : [];
+  if (entryIds.length) {
+    if (body.engagementId) {
+      engagement = db.prepare(
+        "SELECT * FROM firm_engagements WHERE id = ? AND firm_id = ? AND client_id = ?",
+      ).get(body.engagementId, session.firm_id, client.id);
+      if (!engagement) return fail(404, "Engagement not found.");
+      if (engagement.kind !== "hourly") return fail(400, "Bill hours only on an hourly engagement.");
+    }
+    for (const entryId of entryIds) {
       const entry = db.prepare(
         `SELECT time_entries.*, work_items.name AS work_name, work_items.hourly_rate_cents
          FROM time_entries
@@ -353,6 +364,16 @@ export function draftFirmInvoice(db, session, input) {
       if (!entry) return fail(404, "Time entry not found.");
       if (Number(entry.billable) === 0) return fail(400, "That time is nonbillable.");
       if (entry.firm_invoice_id) return fail(400, "That time is already on a firm invoice.");
+      if (entry.invoice_id) return fail(400, "That time is already on a client invoice.");
+      if (entry.engagement_id && engagement && entry.engagement_id !== engagement.id) {
+        return fail(400, "That time is assigned to another engagement.");
+      }
+      if (entry.engagement_id && !engagement) {
+        engagement = db.prepare(
+          "SELECT * FROM firm_engagements WHERE id = ? AND firm_id = ? AND client_id = ?",
+        ).get(entry.engagement_id, session.firm_id, client.id);
+        if (!engagement || engagement.kind !== "hourly") return fail(400, "That time is assigned to a fixed or recurring engagement.");
+      }
       const amount = Math.round(Number(entry.hourly_rate_cents) * Number(entry.hours_hundredths) / 100);
       lines.push({
         description: `${entry.work_name} · ${entry.worked_on}`,
@@ -361,10 +382,57 @@ export function draftFirmInvoice(db, session, input) {
         timeEntryId: entry.id,
       });
     }
+  } else if (body.engagementId) {
+    engagement = db.prepare(
+      "SELECT * FROM firm_engagements WHERE id = ? AND firm_id = ? AND client_id = ?",
+    ).get(body.engagementId, session.firm_id, client.id);
+    if (!engagement || engagement.kind === "hourly") return fail(400, "Choose a fixed or recurring engagement.");
+    lines = [{ description: engagement.name, service: engagement.name, amountCents: Number(engagement.amount_cents) }];
   } else return fail(400, "Choose an engagement or billable time.");
   const id = insertInvoice(db, session, user, client, engagement, issue.day, due.day, String(body.memo || "").slice(0, 200), lines);
   const invoice = loadInvoice(db, session, id);
   return { status: 201, payload: { invoice: presentInvoice(db, session, invoice) } };
+}
+
+function issueExists(db, firmId, engagementId, issueOn) {
+  return db.prepare(
+    "SELECT id FROM firm_invoices WHERE firm_id = ? AND engagement_id = ? AND issue_on = ? AND status != 'void'",
+  ).get(firmId, engagementId, issueOn);
+}
+
+function advanceEngagement(db, session, user, engagement, today) {
+  const interval = Number(engagement.interval_days);
+  if (!Number.isInteger(interval) || interval < 1) return 0;
+  let cursor = engagement.next_on;
+  const started = cursor;
+  let created = 0;
+  for (let step = 0; cursor && cursor <= today && step < 24; step += 1) {
+    if (!issueExists(db, session.firm_id, engagement.id, cursor)) {
+      try {
+        insertInvoice(
+          db,
+          session,
+          user,
+          { id: engagement.client_id },
+          engagement,
+          cursor,
+          addDays(cursor, 14),
+          "Recurring engagement",
+          [{ description: engagement.name, service: engagement.name, amountCents: Number(engagement.amount_cents) }],
+        );
+        created += 1;
+      } catch (error) {
+        if (!String(error.message || error).includes("UNIQUE") || !issueExists(db, session.firm_id, engagement.id, cursor)) throw error;
+      }
+    }
+    cursor = addDays(cursor, interval);
+  }
+  if (cursor !== started) {
+    db.prepare(
+      "UPDATE firm_engagements SET next_on = ? WHERE id = ? AND firm_id = ? AND next_on = ?",
+    ).run(cursor, engagement.id, session.firm_id, started);
+  }
+  return created;
 }
 
 export function generateRecurring(db, session) {
@@ -376,33 +444,32 @@ export function generateRecurring(db, session) {
     `SELECT * FROM firm_engagements
      WHERE firm_id = ? AND kind = 'recurring' AND status = 'active' AND next_on != '' AND next_on <= ?`,
   ).all(session.firm_id, today);
-  const created = [];
+  let created = 0;
   for (const engagement of due) {
     if (!clientFor(db, session, engagement.client_id)) continue;
-    const existing = db.prepare(
-      "SELECT id FROM firm_invoices WHERE firm_id = ? AND engagement_id = ? AND issue_on = ? AND status != 'void'",
-    ).get(session.firm_id, engagement.id, engagement.next_on);
-    if (existing) continue;
-    const client = { id: engagement.client_id };
-    const id = insertInvoice(
-      db,
-      session,
-      user,
-      client,
-      engagement,
-      engagement.next_on,
-      addDays(engagement.next_on, 14),
-      "Recurring engagement",
-      [{ description: engagement.name, service: engagement.name, amountCents: Number(engagement.amount_cents) }],
-    );
-    db.prepare("UPDATE firm_engagements SET next_on = ? WHERE id = ? AND firm_id = ?").run(
-      addDays(engagement.next_on, Number(engagement.interval_days)),
-      engagement.id,
-      session.firm_id,
-    );
-    created.push(id);
+    created += advanceEngagement(db, session, user, engagement, today);
   }
-  return { status: 200, payload: { created: created.length } };
+  return { status: 200, payload: { created } };
+}
+
+export function runRecurringBilling(db) {
+  ensureBilling(db);
+  const today = todayIso();
+  const due = db.prepare(
+    `SELECT * FROM firm_engagements
+     WHERE kind = 'recurring' AND status = 'active' AND next_on != '' AND next_on <= ?`,
+  ).all(today);
+  let created = 0;
+  for (const engagement of due) {
+    created += advanceEngagement(
+      db,
+      { firm_id: engagement.firm_id, user_id: engagement.created_by },
+      { id: engagement.created_by },
+      engagement,
+      today,
+    );
+  }
+  return created;
 }
 
 export function approveFirmInvoice(db, session, id) {
@@ -494,8 +561,8 @@ export function billingReports(db, session) {
   }
   const engagements = board.payload.engagements.map((engagement) => {
     const hours = db.prepare(
-      "SELECT COALESCE(SUM(hours_hundredths), 0) AS hours FROM time_entries WHERE firm_id = ? AND client_id = ? AND billable = 1",
-    ).get(session.firm_id, engagement.clientId);
+      "SELECT COALESCE(SUM(hours_hundredths), 0) AS hours FROM time_entries WHERE firm_id = ? AND engagement_id = ?",
+    ).get(session.firm_id, engagement.id);
     const billed = invoices.filter((invoice) => invoice.engagementId === engagement.id).reduce((sum, invoice) => sum + invoice.billedCents, 0);
     const cost = engagement.costCents == null ? null : Math.round(engagement.costCents * Number(hours.hours) / 100);
     return {
@@ -506,8 +573,8 @@ export function billingReports(db, session) {
       costCents: cost,
       profitCents: cost == null ? null : billed - cost,
       note: cost == null
-        ? "No cost rate is set, so profit is not calculated. Hours are all billable hours for the client."
-        : "Profit is billed fees minus the client's billable hours times the cost rate.",
+        ? "No cost rate is set, so profit is not calculated. Hours are only the time assigned to this engagement."
+        : "Profit is this engagement's approved fees minus its assigned hours times its cost rate.",
     };
   });
   return {

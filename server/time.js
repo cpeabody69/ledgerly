@@ -71,6 +71,7 @@ export function ensureTime(db) {
   const columns = new Set(db.prepare("PRAGMA table_info(time_entries)").all().map((column) => column.name));
   if (!columns.has("billable")) db.exec("ALTER TABLE time_entries ADD COLUMN billable INTEGER NOT NULL DEFAULT 1");
   if (!columns.has("firm_invoice_id")) db.exec("ALTER TABLE time_entries ADD COLUMN firm_invoice_id TEXT");
+  if (!columns.has("engagement_id")) db.exec("ALTER TABLE time_entries ADD COLUMN engagement_id TEXT");
   const missing = db.prepare(
     `SELECT users.id, users.firm_id, users.role, users.created_at
      FROM users
@@ -179,6 +180,8 @@ function entryJson(row) {
     invoiceStatus: row.invoice_status || "",
     billed: Boolean(row.invoice_id),
     billable: Number(row.billable) !== 0,
+    engagementId: row.engagement_id || "",
+    firmInvoiceId: row.firm_invoice_id || "",
   };
 }
 
@@ -331,18 +334,36 @@ export function createTimeEntry(db, session, input) {
   if (hours.error) return hours;
   const note = String(body.note || "").trim();
   if (note.length > 200) return fail(400, "Keep the note to 200 characters.");
+  let engagementId = null;
+  if (body.engagementId) {
+    const engagement = db.prepare(
+      "SELECT id FROM firm_engagements WHERE id = ? AND firm_id = ? AND client_id = ?",
+    ).get(body.engagementId, session.firm_id, client.id);
+    if (!engagement) return fail(404, "Engagement not found.");
+    engagementId = engagement.id;
+  }
   const staff = db.prepare("SELECT id FROM staff WHERE user_id = ? AND firm_id = ?").get(actor.id, session.firm_id);
   if (!staff) return fail(400, "This user has no staff record.");
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO time_entries (
-      id, firm_id, client_id, work_id, user_id, staff_id, worked_on, hours_hundredths, note, invoice_id, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-  ).run(id, session.firm_id, client.id, work.id, actor.id, staff.id, workedOn, hours.hundredths, note, now);
-  if (body.billable === false) {
-    db.prepare("UPDATE time_entries SET billable = 0 WHERE id = ? AND firm_id = ?").run(id, session.firm_id);
-  }
+      id, firm_id, client_id, work_id, user_id, staff_id, worked_on, hours_hundredths, note, invoice_id, created_at, billable, engagement_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+  ).run(
+    id,
+    session.firm_id,
+    client.id,
+    work.id,
+    actor.id,
+    staff.id,
+    workedOn,
+    hours.hundredths,
+    note,
+    now,
+    body.billable === false ? 0 : 1,
+    engagementId,
+  );
   audit(db, session, "time.logged", "time_entry", id, client.id);
   const row = loadEntry(db, session, id, actor);
   return { status: 201, payload: { entry: entryJson(row) } };
@@ -361,6 +382,7 @@ export function invoiceTime(db, session, input) {
   for (const id of ids) {
     const row = loadEntry(db, session, id, actor);
     if (!row) return fail(404, "Time entry not found.");
+    if (row.firm_invoice_id) return fail(400, "That time is already on a firm invoice.");
     if (row.invoice_id) return fail(400, "That time is already on an invoice.");
     rows.push(row);
   }
@@ -407,9 +429,6 @@ export function invoiceTime(db, session, input) {
       invoice: created.payload.invoice,
       entries,
       amountCents,
-      firmFeeWarning: rows.some((row) => row.firm_invoice_id)
-        ? "Some of this time is already on a firm fee invoice. That fee does not post to these books."
-        : "",
     },
   };
 }
