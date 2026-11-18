@@ -19,7 +19,7 @@ Avenue Pro subscription billing is a third path. It is the firm's payment to Ave
 
 ## Verified in this repository
 
-Evidence is the module plus a passing test file. After Phase 11 the suite was 92 tests, 0 failed.
+Evidence is the module plus a passing test file. After Phase 12 the suite was 93 tests, 0 failed.
 
 | Area | Evidence | Status |
 | --- | --- | --- |
@@ -38,6 +38,7 @@ Evidence is the module plus a passing test file. After Phase 11 the suite was 92
 | Monthly close and period lock | `server/close.test.js` | Working |
 | Books-to-tax, sole proprietor, 2026 | `server/tax-calc.test.js`, `server/tax-intel.test.js` | Avenue journals or the QuickBooks mirror. Not a return |
 | Client portal and documents | `server/portal.test.js`, `server/portal-desk.test.js`, `server/documents.test.js` | Working with the limits below |
+| Financial health | `server/health.test.js` | Alerts name records, calculation, and reason. No score |
 
 ## Phase 8 limits that remain
 
@@ -78,13 +79,17 @@ The planner still covers a sole proprietor for 2026 only. When the client ledger
 
 Limits: corporations and partnerships stay unsupported. No state tax, no credits, and no transmitted return. A year other than 2026 has no rules. QuickBooks journal entries stay out of profit until an accountant maps them. The tax-planning screen was not exercised in a browser.
 
+## Phase 12 — Financial health
+
+Implemented on `cursor/financial-health-aef1`. Covered by `server/health.test.js`.
+
+The client view shows year-to-date revenue, expenses, and net against the same dates last year, the cash balance against the prior month, receivable and payable aging, and which past months still have activity and are unlocked. An alert is created only from those records. The work-queue item repeats the calculation and the reason, and it closes when the condition is gone. The firm dashboard lists clients with an open alert. The same list is linked from the client profile and the monthly close screen.
+
+Limits: cash is the balance of asset accounts coded 1000 or named cash, checking, or bank. It is not a bank-feed balance and it does not move money. Duplicate detection matches date, amount, and description. An unusual line is at least three times the median of five or more lines. There is no score. The screen was not exercised in a browser.
+
 ## Phases not started
 
 These are the intended order. Do not skip one and call the product finished.
-
-### Phase 12 — Financial health
-
-Trends, aging, close progress, and tax readiness in one client view. Every alert needs a source record and a way to clear it. No opaque score.
 
 ### Phase 13 — Avenue subscription plans
 

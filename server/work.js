@@ -4,6 +4,7 @@ import { syncCloseIssues } from "./close.js";
 import { syncTaxIssues } from "./tax-intel.js";
 import { noteDocumentReminder } from "./portal-desk.js";
 import { syncFirmInvoices } from "./billing.js";
+import { syncHealthIssues } from "./health.js";
 import { canApproveBills, canSeeTeamWork } from "./permissions.js";
 
 const SCHEMA = `
@@ -358,6 +359,7 @@ function targetFor(row) {
   if (row.source_type === "close_issue") return { screen: "Close" };
   if (row.source_type === "tax_issue") return { screen: "Tax Planning" };
   if (row.source_type === "firm_invoice") return { screen: "Billing" };
+  if (row.source_type === "health_issue") return { screen: "Financial health" };
   return null;
 }
 
@@ -893,6 +895,7 @@ function syncSources(db, session) {
   syncCloseIssues(db, session);
   syncTaxIssues(db, session);
   syncFirmInvoices(db, session);
+  syncHealthIssues(db, session);
 }
 
 function templateJson(row) {

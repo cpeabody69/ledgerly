@@ -4,7 +4,7 @@ function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose, onOpenTax, onSession }) {
+export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose, onOpenTax, onOpenHealth, onSession }) {
   const [home, setHome] = useState(null);
   const [error, setError] = useState("");
   const [clientName, setClientName] = useState("");
@@ -176,6 +176,24 @@ export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose
                 ))}
               </ul>
             ) : <p className="books-note">Every visible client is tax-ready.</p>}
+          </>
+        ) : <p className="books-note">Loading the firm…</p>}
+      </section>
+      <section className="card health-summary">
+        <div className="card-header"><div><h2>Financial health</h2><p>{home?.health ? home.health.asOf : "Today"}</p></div>{onOpenHealth ? <button type="button" className="text-button" onClick={() => onOpenHealth()}>Open health</button> : null}</div>
+        {home?.health ? (
+          <>
+            <p className="firm-progress"><b>{home.health.counts.needingAttention}</b> of <b>{home.health.counts.clients}</b> clients need attention.</p>
+            {home.health.clients.length ? (
+              <ul className="plain-list">
+                {home.health.clients.slice(0, 8).map((client) => (
+                  <li key={client.id}>
+                    <button type="button" className="text-button" onClick={() => onOpenHealth ? onOpenHealth(client.id) : onOpenClient(client.id)}>{client.name}</button>
+                    <small>{client.labels.join(" · ")}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="books-note">No client has an open alert.</p>}
           </>
         ) : <p className="books-note">Loading the firm…</p>}
       </section>

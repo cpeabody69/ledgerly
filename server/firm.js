@@ -7,6 +7,7 @@ import { canSeeTeamWork, ROLE_LABEL } from "./permissions.js";
 import { closeBoard } from "./close.js";
 import { taxBoard } from "./tax-intel.js";
 import { openFirmInvoiceCount } from "./billing.js";
+import { healthBoard } from "./health.js";
 import { ensureWork, workflowSnapshot } from "./work.js";
 
 const MONTHS = [
@@ -20,6 +21,12 @@ function countOf(row) {
 
 function taxResult(db, session) {
   const result = taxBoard(db, session, { year: Number(todayIso().slice(0, 4)) });
+  if (result.error) return null;
+  return result.payload;
+}
+
+function healthResult(db, session) {
+  const result = healthBoard(db, session);
   if (result.error) return null;
   return result.payload;
 }
@@ -230,6 +237,7 @@ export function firmHome(db, session) {
       workflow,
       close: closeResult(db, session),
       tax: taxResult(db, session),
+      health: healthResult(db, session),
       workload,
       activity,
       clients: clientRows.filter((row) => row.status !== "archived").map((row) => ({

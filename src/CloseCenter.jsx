@@ -10,7 +10,7 @@ const CHECK_ACTION = {
   open: "Reopen check",
 };
 
-export function CloseCenter({ clientId }) {
+export function CloseCenter({ clientId, onOpenHealth }) {
   const [period, setPeriod] = useState("");
   const [status, setStatus] = useState("");
   const [assignee, setAssignee] = useState("");
@@ -112,6 +112,7 @@ export function CloseCenter({ clientId }) {
         <div>
           <h1>Monthly close</h1>
           <p>Close the books for a month. A lock is not a tax filing and does not calculate tax.</p>
+          {onOpenHealth ? <button type="button" className="text-button" onClick={onOpenHealth}>Open financial health</button> : null}
         </div>
       </header>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
