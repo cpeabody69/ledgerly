@@ -228,7 +228,8 @@ export function sessionPayload(db, session) {
   const scope = accessScope(db, session);
   const clientRows = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id);
   const visibleRows = scope.unrestricted ? clientRows : clientRows.filter((row) => scope.clientIds.includes(row.id));
-  const clients = visibleRows.map(clientJson);
+  const switcherRows = visibleRows.filter((row) => (row.status || "active") !== "archived");
+  const clients = switcherRows.map(clientJson);
   const selected = visibleRows.find((row) => row.id === session.selected_client_id) || null;
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
   const checklist = checklistFor(db, firm.id);
