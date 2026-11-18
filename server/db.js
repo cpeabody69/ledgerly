@@ -20,6 +20,7 @@ import { ensureQuickBooks } from "./quickbooks/index.js";
 import { ensurePayables } from "./payables.js";
 import { ensureDemoTables } from "./demo.js";
 import { ROLE_LABEL, EMPLOYEE_ROLES, canManageFirm } from "./permissions.js";
+import { accessScope, clientAllowed, ensureClientGrants, firstVisibleClientId, lookupClient } from "./access.js";
 import {
   backfillAccess,
   beginOnboardingSession,
@@ -145,6 +146,7 @@ export function openDatabase(dbPath) {
   ensureWork(db);
   ensureDemoTables(db);
   backfillAccess(db);
+  ensureClientGrants(db);
   return db;
 }
 
@@ -223,8 +225,11 @@ export function sessionPayload(db, session) {
   if (session.onboarding) return onboardingPayload(db, session);
   const user = db.prepare("SELECT id, firm_id, email, name, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
   const firm = db.prepare("SELECT id, name, require_receipt, demo FROM firms WHERE id = ?").get(session.firm_id);
-  const clients = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id).map(clientJson);
-  const selected = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(session.selected_client_id, session.firm_id);
+  const scope = accessScope(db, session);
+  const clientRows = db.prepare("SELECT * FROM clients WHERE firm_id = ? ORDER BY position, name").all(session.firm_id);
+  const visibleRows = scope.unrestricted ? clientRows : clientRows.filter((row) => scope.clientIds.includes(row.id));
+  const clients = visibleRows.map(clientJson);
+  const selected = visibleRows.find((row) => row.id === session.selected_client_id) || null;
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
   const checklist = checklistFor(db, firm.id);
   return {
@@ -287,9 +292,9 @@ export function signIn(db, email, password) {
     if (membership && membership.status !== "active") return { error: "This account is deactivated.", status: 403 };
   }
   if (!user.firm_id || user.status === "pending_onboarding") return beginOnboardingSession(db, user);
-  const client = db.prepare("SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1").get(user.firm_id);
-  if (!client) return beginOnboardingSession(db, user);
-  return openFirmSession(db, user, client.id);
+  const clientId = firstVisibleClientId(db, user);
+  if (!clientId) return beginOnboardingSession(db, user);
+  return openFirmSession(db, user, clientId);
 }
 
 export function signOut(db, session) {
@@ -308,7 +313,7 @@ export function signOut(db, session) {
 }
 
 export function selectClient(db, session, clientId) {
-  const client = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
+  const client = lookupClient(db, session, clientId);
   if (!client) return null;
   db.prepare("UPDATE sessions SET selected_client_id = ? WHERE id = ? AND firm_id = ?").run(client.id, session.id, session.firm_id);
   const next = { ...session, selected_client_id: client.id };
@@ -317,6 +322,7 @@ export function selectClient(db, session, clientId) {
 }
 
 export function findClient(db, session, clientId) {
+  if (!clientAllowed(db, session, clientId)) return null;
   const client = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
   return client ? clientJson(client) : null;
 }

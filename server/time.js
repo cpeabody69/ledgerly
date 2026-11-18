@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { accessScope, lookupClient } from "./access.js";
 import { addCents, formatMoney, parseCents } from "../shared/money.js";
 import { createInvoice, discardInvoice } from "./invoices.js";
 import { canSeeFirmTime } from "./permissions.js";
@@ -130,7 +131,8 @@ function viewer(db, session) {
 }
 
 function clientInFirm(db, session, clientId) {
-  return db.prepare("SELECT id, name FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
+  const row = lookupClient(db, session, clientId);
+  return row ? { id: row.id, name: row.name } : null;
 }
 
 const ENTRY_SQL = `
@@ -179,6 +181,8 @@ function entryJson(row) {
 function loadEntry(db, session, id, actor) {
   const row = db.prepare(`${ENTRY_SQL} WHERE time_entries.id = ? AND time_entries.firm_id = ?`).get(id, session.firm_id);
   if (!row) return null;
+  const scope = accessScope(db, session);
+  if (!scope.unrestricted && !scope.clientIds.includes(row.client_id)) return null;
   if (!actor.firmWide && row.user_id !== actor.id) return null;
   return row;
 }
@@ -194,20 +198,21 @@ export function listTime(db, session) {
      WHERE staff.firm_id = ?
      ORDER BY users.name`,
   ).all(session.firm_id);
+  const scope = accessScope(db, session);
   const work = db.prepare(
     `SELECT work_items.*, clients.name AS client_name
      FROM work_items
      JOIN clients ON clients.id = work_items.client_id AND clients.firm_id = work_items.firm_id
      WHERE work_items.firm_id = ?
      ORDER BY clients.name, work_items.name`,
-  ).all(session.firm_id);
+  ).all(session.firm_id).filter((row) => scope.unrestricted || scope.clientIds.includes(row.client_id));
   const rows = db.prepare(
     `${ENTRY_SQL}
      WHERE time_entries.firm_id = ?
        AND (? = 1 OR time_entries.user_id = ?)
      ORDER BY time_entries.worked_on DESC, users.name, time_entries.created_at DESC`,
   ).all(session.firm_id, actor.firmWide ? 1 : 0, actor.id);
-  const entries = rows.map(entryJson);
+  const entries = rows.map(entryJson).filter((entry) => scope.unrestricted || scope.clientIds.includes(entry.clientId));
   const byClient = [];
   for (const entry of entries) {
     let group = byClient.find((item) => item.clientId === entry.clientId);

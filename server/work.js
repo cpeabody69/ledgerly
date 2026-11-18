@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { accessScope, lookupClient, scopeSql } from "./access.js";
+import { canSeeTeamWork } from "./permissions.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS work_tasks (
@@ -156,12 +158,13 @@ function actor(db, session) {
 }
 
 function teamRole(role) {
-  return role === "owner" || role === "manager";
+  return canSeeTeamWork(role);
 }
 
 function clientInFirm(db, session, clientId) {
   if (!clientId) return null;
-  return db.prepare("SELECT id, name FROM clients WHERE id = ? AND firm_id = ?").get(clientId, session.firm_id);
+  const row = lookupClient(db, session, clientId);
+  return row ? { id: row.id, name: row.name } : null;
 }
 
 function memberInFirm(db, session, userId) {
@@ -293,6 +296,7 @@ function taskJson(row, history = []) {
 
 function taskRows(db, session, user) {
   const mine = teamRole(user.role) ? 0 : 1;
+  const extra = scopeSql(db, session, "work_tasks.client_id");
   return db.prepare(
     `SELECT work_tasks.*, clients.name AS client_name, assignees.name AS assignee_name, completers.name AS completed_by_name
      FROM work_tasks
@@ -301,8 +305,9 @@ function taskRows(db, session, user) {
      LEFT JOIN users AS completers ON completers.id = work_tasks.completed_by_user_id AND completers.firm_id = work_tasks.firm_id
      WHERE work_tasks.firm_id = ?
        AND (? = 0 OR work_tasks.assignee_user_id = ?)
+       ${extra.sql}
      ORDER BY CASE work_tasks.status WHEN 'completed' THEN 1 ELSE 0 END, work_tasks.due_on, work_tasks.title`,
-  ).all(session.firm_id, mine, user.id);
+  ).all(session.firm_id, mine, user.id, ...extra.params);
 }
 
 export function taskCounts(tasks, today = localDate()) {
@@ -358,13 +363,15 @@ function insertSource(db, session, source) {
 
 function syncSources(db, session) {
   const today = localDate();
+  const bankScope = scopeSql(db, session, "bank_transactions.client_id");
   const groups = db.prepare(
     `SELECT bank_transactions.client_id, clients.name AS client_name, COUNT(*) AS count
      FROM bank_transactions
      JOIN clients ON clients.id = bank_transactions.client_id AND clients.firm_id = bank_transactions.firm_id
      WHERE bank_transactions.firm_id = ? AND bank_transactions.status = 'for_review'
+     ${bankScope.sql}
      GROUP BY bank_transactions.client_id`,
-  ).all(session.firm_id);
+  ).all(session.firm_id, ...bankScope.params);
   for (const group of groups) {
     const count = Number(group.count);
     insertSource(db, session, {
@@ -379,13 +386,15 @@ function syncSources(db, session) {
     });
   }
 
+  const billScope = scopeSql(db, session, "ap_bills.client_id");
   const bills = db.prepare(
     `SELECT ap_bills.id, ap_bills.client_id, ap_bills.invoice_number, ap_bills.due_date, ap_vendors.name AS vendor_name, clients.name AS client_name
      FROM ap_bills
      JOIN ap_vendors ON ap_vendors.id = ap_bills.vendor_id AND ap_vendors.firm_id = ap_bills.firm_id
      JOIN clients ON clients.id = ap_bills.client_id AND clients.firm_id = ap_bills.firm_id
-     WHERE ap_bills.firm_id = ? AND ap_bills.status = 'awaiting_approval'`,
-  ).all(session.firm_id);
+     WHERE ap_bills.firm_id = ? AND ap_bills.status = 'awaiting_approval'
+     ${billScope.sql}`,
+  ).all(session.firm_id, ...billScope.params);
   for (const bill of bills) {
     insertSource(db, session, {
       clientId: bill.client_id,
@@ -399,12 +408,14 @@ function syncSources(db, session) {
     });
   }
 
+  const invoiceScope = scopeSql(db, session, "invoices.client_id");
   const invoices = db.prepare(
     `SELECT invoices.id, invoices.client_id, invoices.number, invoices.customer_name, invoices.due_date, clients.name AS client_name
      FROM invoices
      JOIN clients ON clients.id = invoices.client_id AND clients.firm_id = invoices.firm_id
-     WHERE invoices.firm_id = ? AND invoices.status IN ('sent', 'partial') AND invoices.due_date < ?`,
-  ).all(session.firm_id, today);
+     WHERE invoices.firm_id = ? AND invoices.status IN ('sent', 'partial') AND invoices.due_date < ?
+     ${invoiceScope.sql}`,
+  ).all(session.firm_id, today, ...invoiceScope.params);
   for (const invoice of invoices) {
     insertSource(db, session, {
       clientId: invoice.client_id,
@@ -418,12 +429,14 @@ function syncSources(db, session) {
     });
   }
 
+  const requestScope = scopeSql(db, session, "document_requests.client_id");
   const requests = db.prepare(
     `SELECT document_requests.id, document_requests.client_id, document_requests.title, document_requests.due_on, clients.name AS client_name
      FROM document_requests
      JOIN clients ON clients.id = document_requests.client_id AND clients.firm_id = document_requests.firm_id
-     WHERE document_requests.firm_id = ? AND document_requests.status = 'open'`,
-  ).all(session.firm_id);
+     WHERE document_requests.firm_id = ? AND document_requests.status = 'open'
+     ${requestScope.sql}`,
+  ).all(session.firm_id, ...requestScope.params);
   for (const request of requests) {
     insertSource(db, session, {
       clientId: request.client_id,
@@ -446,9 +459,12 @@ function queuePayload(db, session, user, taskId = "") {
   const members = db.prepare(
     "SELECT id, name, role FROM users WHERE firm_id = ? ORDER BY name",
   ).all(session.firm_id).map((member) => ({ id: member.id, name: member.name, role: member.role }));
+  const scope = accessScope(db, session);
   const clients = db.prepare(
     "SELECT id, name FROM clients WHERE firm_id = ? ORDER BY position, name",
-  ).all(session.firm_id).map((client) => ({ id: client.id, name: client.name }));
+  ).all(session.firm_id)
+    .filter((client) => scope.unrestricted || scope.clientIds.includes(client.id))
+    .map((client) => ({ id: client.id, name: client.name }));
   const payload = {
     scope: teamRole(user.role) ? "team" : "mine",
     scopeLabel: teamRole(user.role) ? "Team Tasks" : "My Tasks",
@@ -463,6 +479,7 @@ function queuePayload(db, session, user, taskId = "") {
 
 function loadTask(db, session, user, taskId) {
   const mine = teamRole(user.role) ? 0 : 1;
+  const extra = scopeSql(db, session, "work_tasks.client_id");
   return db.prepare(
     `SELECT work_tasks.*, clients.name AS client_name, assignees.name AS assignee_name, completers.name AS completed_by_name
      FROM work_tasks
@@ -470,8 +487,9 @@ function loadTask(db, session, user, taskId) {
      LEFT JOIN users AS assignees ON assignees.id = work_tasks.assignee_user_id AND assignees.firm_id = work_tasks.firm_id
      LEFT JOIN users AS completers ON completers.id = work_tasks.completed_by_user_id AND completers.firm_id = work_tasks.firm_id
      WHERE work_tasks.id = ? AND work_tasks.firm_id = ?
-       AND (? = 0 OR work_tasks.assignee_user_id = ?)`,
-  ).get(taskId, session.firm_id, mine, user.id);
+       AND (? = 0 OR work_tasks.assignee_user_id = ?)
+       ${extra.sql}`,
+  ).get(taskId, session.firm_id, mine, user.id, ...extra.params);
 }
 
 export function readWork(db, session) {
@@ -715,9 +733,16 @@ export function readNotices(db, session) {
   const user = actor(db, session);
   if (!user) return fail(401, "Sign in required.");
   syncOverdueNotices(db, session);
+  const scope = accessScope(db, session);
   const notices = db.prepare(
-    "SELECT * FROM work_notices WHERE firm_id = ? AND user_id = ? ORDER BY created_at DESC, id",
-  ).all(session.firm_id, user.id).map(noticeJson);
+    `SELECT work_notices.*, work_tasks.client_id
+     FROM work_notices
+     JOIN work_tasks ON work_tasks.id = work_notices.task_id AND work_tasks.firm_id = work_notices.firm_id
+     WHERE work_notices.firm_id = ? AND work_notices.user_id = ?
+     ORDER BY work_notices.created_at DESC, work_notices.id`,
+  ).all(session.firm_id, user.id)
+    .filter((row) => scope.unrestricted || (row.client_id && scope.clientIds.includes(row.client_id)))
+    .map(noticeJson);
   return { status: 200, payload: { notices } };
 }
 

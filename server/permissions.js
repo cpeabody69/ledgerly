@@ -25,3 +25,7 @@ export function canSeeFirmTime(role) {
 export function canApproveBills(role) {
   return role === "owner" || role === "administrator" || role === "manager" || role === "accountant";
 }
+
+export function canSeeTeamWork(role) {
+  return role === "owner" || role === "administrator" || role === "manager";
+}

@@ -32,6 +32,7 @@ import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPaya
 import { commentWorkTask, completeWorkTask, createWorkTask, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
 import { crossSiteError, handleAuthRoutes, noteOnboarding, onboardingPassthrough, readonlyWriteError, withinRateLimit } from "./auth.js";
+import { alignSelectedClient, listAudit, listClientGrants, recordAccessDenial, saveClientGrants } from "./access.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -176,7 +177,8 @@ async function handle(req, res, db, options) {
     return;
   }
 
-  const session = loadSession(db, readCookie(req, COOKIE));
+  let session = loadSession(db, readCookie(req, COOKIE));
+  if (session && !session.portal && !session.onboarding) session = alignSelectedClient(db, session);
   const blocked = crossSiteError(req);
   if (blocked) {
     send(res, 403, { error: blocked });
@@ -250,6 +252,7 @@ async function handle(req, res, db, options) {
 
   const readonlyError = readonlyWriteError(db, session, req.method, pathname);
   if (readonlyError) {
+    recordAccessDenial(db, session, readonlyError, session.selected_client_id);
     send(res, 403, { error: readonlyError });
     return;
   }
@@ -294,7 +297,34 @@ async function handle(req, res, db, options) {
 
   const subscriptionError = subscriptionWriteError(db, session, req.method, pathname);
   if (subscriptionError) {
+    recordAccessDenial(db, session, subscriptionError);
     send(res, 403, { error: subscriptionError });
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/audit") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, listAudit(db, session, {
+      clientId: url.searchParams.get("clientId"),
+      actorId: url.searchParams.get("actorId"),
+      action: url.searchParams.get("action"),
+      q: url.searchParams.get("q"),
+    }));
+    return;
+  }
+
+  if (pathname === "/api/client-grants" && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = req.method === "GET"
+      ? listClientGrants(db, session)
+      : saveClientGrants(db, session, await readBody(req));
+    sendResult(res, result);
     return;
   }
 

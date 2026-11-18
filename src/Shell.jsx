@@ -23,6 +23,8 @@ import { TaskNotices } from "./Notices.jsx";
 import { WorkQueue } from "./WorkQueue.jsx";
 import { Demo } from "./Demo.jsx";
 import { Integrations } from "./Integrations.jsx";
+import { AuditLog } from "./AuditLog.jsx";
+import { ClientAccess } from "./ClientAccess.jsx";
 
 const b = { createContext, useContext, useEffect, useMemo, useState };
 
@@ -236,7 +238,9 @@ function Ce({
     [inviteOpen, setInviteOpen] = (0, b.useState)(!1),
     [section, setSection] = (0, b.useState)(() => e === `Settings` && new URLSearchParams(window.location.search).get(`quickbooks`) ? `integrations` : `company`),
     owner = session.user.role === `owner` || session.user.role === `administrator`,
-    integrations = e === `Settings` && section === `integrations`;
+    integrations = e === `Settings` && section === `integrations`,
+    accessTab = e === `Settings` && section === `access` && owner,
+    auditTab = e === `Settings` && section === `audit` && owner;
   (0, b.useEffect)(() => {
     if (e !== `Settings`) return undefined;
     const params = new URLSearchParams(window.location.search);
@@ -247,10 +251,10 @@ function Ce({
     window.history.replaceState({}, ``, next ? `/?${next}` : `/`);
     return undefined;
   }, [e]);
-  return <div className="page"><D eyebrow={integrations ? `Settings` : undefined} title={integrations ? `Integrations` : e} subtitle={integrations ? `Connect QuickBooks Online for ${session.client.name}.` : {
+  return <div className="page"><D eyebrow={integrations || accessTab || auditTab ? `Settings` : undefined} title={accessTab ? `Client access` : auditTab ? `Audit log` : integrations ? `Integrations` : e} subtitle={accessTab ? `Choose the clients each employee can open.` : auditTab ? `Activity recorded for ${session.firm.name}.` : integrations ? `Connect QuickBooks Online for ${session.client.name}.` : {
       Banking: `Connect accounts and keep every balance reconciled.`,
       Settings: `${session.firm.name}: plan, seats, team, and receipt rules.`
-    }[e]} actions={integrations ? null : <Cmp_w icon="plus" disabled={e === `Settings` && (!owner || session.subscription?.allowsWork === false || session.subscription?.seatsUsed >= session.subscription?.seatLimit)} onClick={() => e === `Banking` ? n(`Secure bank connection flow opened`) : owner ? setInviteOpen(!0) : undefined}>{e === `Banking` ? `Connect account` : `Invite team member`}</Cmp_w>} />{e === `Settings` ? <div className="tab-bar settings-tabs" role="tablist" aria-label="Settings"><button type="button" className={section === `company` ? `active` : ``} onClick={() => setSection(`company`)}>Company</button><button type="button" className={section === `integrations` ? `active` : ``} onClick={() => setSection(`integrations`)}>Integrations</button></div> : null}{integrations ? <Integrations key={session.client?.id} clientId={session.client?.id} canConnect={owner} /> : <>{e === `Settings` ? <SubscriptionSetting session={session} onSession={onSession} /> : null}{e === `Settings` ? <E className="table-card team-card"><Cmp_re title="Team" subtitle={`People who can sign in to ${session.firm.name}. ${session.subscription ? `${session.subscription.seatsUsed} of ${session.subscription.seatLimit} seats are in use.` : ``}`} /><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>{session.members.map(member => <tr key={member.id}><td><strong>{member.name}</strong></td><td>{member.email}</td><td>{member.roleLabel}</td></tr>)}</tbody></table></E> : null}{e === `Settings` ? <ReceiptSetting session={session} onSession={onSession} /> : null}</>}{inviteOpen ? <InviteModal onClose={() => setInviteOpen(!1)} onCreated={next => {
+    }[e]} actions={integrations || accessTab || auditTab ? null : <Cmp_w icon="plus" disabled={e === `Settings` && (!owner || session.subscription?.allowsWork === false || session.subscription?.seatsUsed >= session.subscription?.seatLimit)} onClick={() => e === `Banking` ? n(`Secure bank connection flow opened`) : owner ? setInviteOpen(!0) : undefined}>{e === `Banking` ? `Connect account` : `Invite team member`}</Cmp_w>} />{e === `Settings` ? <div className="tab-bar settings-tabs" role="tablist" aria-label="Settings"><button type="button" className={section === `company` ? `active` : ``} onClick={() => setSection(`company`)}>Company</button>{owner ? <button type="button" className={section === `access` ? `active` : ``} onClick={() => setSection(`access`)}>Client access</button> : null}{owner ? <button type="button" className={section === `audit` ? `active` : ``} onClick={() => setSection(`audit`)}>Audit log</button> : null}<button type="button" className={section === `integrations` ? `active` : ``} onClick={() => setSection(`integrations`)}>Integrations</button></div> : null}{accessTab ? <ClientAccess /> : auditTab ? <AuditLog /> : integrations ? <Integrations key={session.client?.id} clientId={session.client?.id} canConnect={owner} /> : <>{e === `Settings` ? <SubscriptionSetting session={session} onSession={onSession} /> : null}{e === `Settings` ? <E className="table-card team-card"><Cmp_re title="Team" subtitle={`People who can sign in to ${session.firm.name}. ${session.subscription ? `${session.subscription.seatsUsed} of ${session.subscription.seatLimit} seats are in use.` : ``}`} /><table><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>{session.members.map(member => <tr key={member.id}><td><strong>{member.name}</strong></td><td>{member.email}</td><td>{member.roleLabel}</td></tr>)}</tbody></table></E> : null}{e === `Settings` ? <ReceiptSetting session={session} onSession={onSession} /> : null}</>}{inviteOpen ? <InviteModal onClose={() => setInviteOpen(!1)} onCreated={next => {
         setInviteOpen(!1);
         onSession(next);
       }} /> : null}</div>;

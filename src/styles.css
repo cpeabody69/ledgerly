@@ -2026,6 +2026,11 @@ inherits:false}
 .subscription-metrics strong{font-size:16px}
 .subscription-form{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding:8px 18px}
 .subscription-form .field{flex:1;min-width:140px;margin:0}
+.audit-filters{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 14px}
+.audit-filters .field{min-width:160px;flex:1}
+.audit-table td{vertical-align:top}
+.access-clients{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:8px}
+.access-clients label{display:flex;align-items:center;gap:6px;font-size:13px}
 .subscription-form .button{height:38px}
 .subscription-card .books-table{margin-top:8px}
 .modal.task-activity{max-height:calc(100vh - 80px);overflow:auto}
@@ -2233,3 +2238,8 @@ td strong,.books-table .num{font-variant-numeric:tabular-nums}
 .bar-group{width:auto;min-width:72px}
 .bar-group span{font-size:12px}
 .metric-change,.chart-summary em,.chart-tools{font-size:12px}
+.audit-filters{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 14px}
+.audit-filters .field{min-width:160px;flex:1}
+.audit-table td{vertical-align:top}
+.access-clients{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:8px}
+.access-clients label{display:flex;align-items:center;gap:6px;font-size:13px}

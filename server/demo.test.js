@@ -202,6 +202,7 @@ test("demo books balance, checks are stored, and reset leaves other firms alone"
     const averyStays = await json(avery, base, "/api/session");
     assert.equal(averyStays.body.firm.demo, true);
     assert.notEqual(averyStays.body.client.id, northstarClientId);
+    const payingAfterProbes = payingFirmSnapshot(dbPath);
 
     const harborAgain = await json(jordan, base, "/api/session");
     assert.equal(harborAgain.body.firm.name, "Harbor Street Advisors");
@@ -273,14 +274,14 @@ test("demo books balance, checks are stored, and reset leaves other firms alone"
     assert.equal(afterReport.body.profitAndLoss.netIncomeCents, incomeBefore);
 
     const payingAtChecks = payingFirmSnapshot(dbPath);
-    assert.deepEqual(payingAtChecks, payingBefore);
+    assert.deepEqual(payingAtChecks, payingAfterProbes);
     const restored = await json(avery, base, "/api/demo/reset", { method: "POST" });
     assert.equal(restored.response.status, 200);
     assert.equal(restored.body.session.firm.name, "Ledgerly Demo (fictional)");
     assert.equal(restored.body.session.firm.demo, true);
     assert.equal(restored.body.scenarioCount, 3);
     assert.equal(restored.body.lastResult, null);
-    assert.deepEqual(payingFirmSnapshot(dbPath), payingBefore);
+    assert.deepEqual(payingFirmSnapshot(dbPath), payingAfterProbes);
     const stillAvery = await json(avery, base, "/api/session");
     assert.equal(stillAvery.body.user.email, "avery@ledgerly-demo.example");
     assert.equal(stillAvery.body.firm.demo, true);

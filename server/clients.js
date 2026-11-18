@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { accessScope, lookupClient } from "./access.js";
 import { listRequestHistory } from "./documents.js";
 import { loadStatement } from "./statements.js";
 
@@ -164,13 +165,14 @@ function recentlyAdded(createdAt) {
 export function listFirm(db, session, filters = {}) {
   ensureFirmCrm(db);
   const firm = db.prepare("SELECT id, name FROM firms WHERE id = ?").get(session.firm_id);
+  const scope = accessScope(db, session);
   const rows = db.prepare(
     `SELECT clients.*, users.name AS assigned_name
      FROM clients
      LEFT JOIN users ON users.id = clients.assigned_user_id AND users.firm_id = clients.firm_id
      WHERE clients.firm_id = ?
      ORDER BY clients.position, clients.name`,
-  ).all(session.firm_id);
+  ).all(session.firm_id).filter((row) => scope.unrestricted || scope.clientIds.includes(row.id));
   const uncategorizedFor = db.prepare(
     "SELECT COUNT(*) AS count FROM bank_transactions WHERE firm_id = ? AND client_id = ? AND status = 'for_review'",
   );
@@ -284,6 +286,7 @@ export function applyProfile(db, session, clientId, fields) {
 
 export function readClient(db, session, clientId) {
   ensureFirmCrm(db);
+  if (!lookupClient(db, session, clientId)) return { status: 404, error: "Client not found." };
   const row = ownedClient(db, session, clientId);
   if (!row) return { status: 404, error: "Client not found." };
   return { status: 200, payload: { client: detailFor(db, session, row) } };
@@ -314,6 +317,7 @@ function writeProfile(db, session, clientId, fields) {
 
 export function updateClient(db, session, clientId, input) {
   ensureFirmCrm(db);
+  if (!lookupClient(db, session, clientId)) return { status: 404, error: "Client not found." };
   const existing = ownedClient(db, session, clientId);
   if (!existing) return { status: 404, error: "Client not found." };
   const body = input || {};
@@ -343,6 +347,7 @@ export function updateClient(db, session, clientId, input) {
 
 export function archiveClient(db, session, clientId) {
   ensureFirmCrm(db);
+  if (!lookupClient(db, session, clientId)) return { status: 404, error: "Client not found." };
   const existing = ownedClient(db, session, clientId);
   if (!existing) return { status: 404, error: "Client not found." };
   if (existing.status !== "archived") {
