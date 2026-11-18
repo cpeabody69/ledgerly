@@ -80,6 +80,7 @@ import { approveWorkTask, assignSchedule, commentWorkTask, completeWorkTask, cre
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
 import { crossSiteError, handleAuthRoutes, noteOnboarding, onboardingPassthrough, readonlyWriteError, withinRateLimit } from "./auth.js";
 import { alignSelectedClient, listAudit, listClientGrants, recordAccessDenial, saveClientGrants } from "./access.js";
+import { applyCors, cookieAttributes, productDescription } from "./product-host.js";
 
 const COOKIE = "ledgerly_session";
 
@@ -116,8 +117,7 @@ function send(res, status, body, extraHeaders = {}) {
 }
 
 function cookieSuffix() {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `HttpOnly; SameSite=Lax; Path=/${secure}`;
+  return cookieAttributes();
 }
 
 function setSessionCookie(token) {
@@ -216,6 +216,12 @@ function serveStatic(req, res, staticDir) {
 async function handle(req, res, db, options) {
   const url = new URL(req.url, "http://127.0.0.1");
   const { pathname } = url;
+  if (pathname.startsWith("/api/")) applyCors(req, res);
+  if (req.method === "OPTIONS" && pathname.startsWith("/api/")) {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
   if (!pathname.startsWith("/api/")) {
     if (options.staticDir) serveStatic(req, res, options.staticDir);
     else {
@@ -290,6 +296,26 @@ async function handle(req, res, db, options) {
     }
     if (signedIn.mfaRequired) {
       send(res, 200, { mfaRequired: true, ticket: signedIn.ticket });
+      return;
+    }
+    send(res, 200, signedIn.payload, { "set-cookie": setSessionCookie(signedIn.token) });
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/product") {
+    send(res, 200, productDescription());
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/demo/enter") {
+    if (!withinRateLimit(options, req, "login", 1000, 15 * 60 * 1000)) {
+      send(res, 429, { error: "Too many attempts. Try again later." });
+      return;
+    }
+    ensureDemo(db);
+    const signedIn = signIn(db, DEMO_OWNER.email, DEMO_OWNER.password);
+    if (!signedIn || signedIn.error) {
+      send(res, signedIn?.status || 500, { error: signedIn?.error || "The fictional demo could not be opened." });
       return;
     }
     send(res, 200, signedIn.payload, { "set-cookie": setSessionCookie(signedIn.token) });
