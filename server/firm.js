@@ -4,7 +4,7 @@ import { accessScope, ensureClientGrants } from "./access.js";
 import { ensureFirmCrm } from "./clients.js";
 import { listRequestHistory } from "./documents.js";
 import { canSeeTeamWork, ROLE_LABEL } from "./permissions.js";
-import { ensureWork } from "./work.js";
+import { ensureWork, workflowSnapshot } from "./work.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -75,6 +75,7 @@ export function firmHome(db, session) {
   const firm = db.prepare("SELECT id, name FROM firms WHERE id = ?").get(session.firm_id);
   const user = db.prepare("SELECT id, role FROM users WHERE id = ? AND firm_id = ?").get(session.user_id, session.firm_id);
   if (!firm || !user) return { status: 401, error: "Sign in required." };
+  const workflow = workflowSnapshot(db, session);
   const scope = accessScope(db, session);
   const seesTeam = canSeeTeamWork(user.role);
   const clientRows = db.prepare(
@@ -209,6 +210,7 @@ export function firmHome(db, session) {
         })),
       },
       deadlines: deadlines.slice(0, 12),
+      workflow,
       workload,
       activity,
       clients: clientRows.filter((row) => row.status !== "archived").map((row) => ({

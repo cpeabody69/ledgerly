@@ -130,11 +130,16 @@ test("work tasks persist, match the queue counts, and stay inside the firm", asy
     assert.equal(first.scopeLabel, "Team Tasks");
     assert.deepEqual(second.tasks.map((task) => task.id).sort(), first.tasks.map((task) => task.id).sort());
     const sourced = (queue) => queue.tasks.filter((task) => task.sourceType);
-    assert.equal(sourced(first).length, 5);
+    const coreTypes = ["uncategorized_group", "bill", "invoice", "document_request"];
+    const core = (queue) => sourced(queue).filter((task) => coreTypes.includes(task.sourceType));
+    assert.equal(core(first).length, 5);
     assert.equal(sourced(first).filter((task) => task.sourceType === "uncategorized_group").length, 2);
     assert.equal(sourced(first).filter((task) => task.sourceType === "bill").length, 1);
     assert.equal(sourced(first).filter((task) => task.sourceType === "invoice").length, 1);
     assert.equal(sourced(first).filter((task) => task.sourceType === "document_request").length, 1);
+    assert.equal(sourced(first).filter((task) => task.sourceType === "unreconciled_account").length, 2);
+    assert.equal(sourced(first).filter((task) => task.sourceType === "bookkeeping_month").length, 2);
+    assert.equal(sourced(first).filter((task) => task.sourceType === "unpaid_bill").length, 0);
     assert.equal(sourced(first).some((task) => task.category === "tax"), false);
     const billTask = first.tasks.find((task) => task.sourceType === "bill");
     const invoiceTask = first.tasks.find((task) => task.sourceType === "invoice");
