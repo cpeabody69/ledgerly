@@ -78,6 +78,7 @@ import { beginQuickBooksConnect, disconnectQuickBooks, handleQuickBooksCallback,
 import { approveBill, createBill, createVendor, postBill, readAgingCsv, readPayables, recordPayment as recordBillPayment, rejectBill, submitBill, updateBill, updateVendor, voidBill, voidPayment } from "./payables.js";
 import { approveWorkTask, assignSchedule, commentWorkTask, completeWorkTask, createWorkTask, listWorkflows, markNoticeRead, readClientTasks, readNotices, readWork, readWorkTask, updateWorkTask } from "./work.js";
 import { DEMO_OWNER, ensureDemo, readDemo, resetDemo, runDemoChecks } from "./demo.js";
+import { createPublicDemo, PUBLIC_COOKIE, publicDemoMutationError } from "./public-demo.js";
 import { crossSiteError, handleAuthRoutes, noteOnboarding, onboardingPassthrough, readonlyWriteError, withinRateLimit } from "./auth.js";
 import { alignSelectedClient, listAudit, listClientGrants, recordAccessDenial, saveClientGrants } from "./access.js";
 import { applyCors, cookieAttributes, productDescription } from "./product-host.js";
@@ -120,12 +121,17 @@ function cookieSuffix() {
   return cookieAttributes();
 }
 
-function setSessionCookie(token) {
-  return `${COOKIE}=${encodeURIComponent(token)}; ${cookieSuffix()}; Max-Age=${14 * 24 * 60 * 60}`;
+function setSessionCookie(token, options = {}) {
+  const name = options.cookieName || COOKIE;
+  const maxAge = options.publicSession
+    ? Math.max(60, Math.ceil((options.publicTtlMs || 2 * 60 * 60 * 1000) / 1000))
+    : 14 * 24 * 60 * 60;
+  return `${name}=${encodeURIComponent(token)}; ${cookieSuffix()}; Max-Age=${maxAge}`;
 }
 
-function clearSessionCookie() {
-  return `${COOKIE}=; ${cookieSuffix()}; Max-Age=0`;
+function clearSessionCookie(options = {}) {
+  const name = options.cookieName || COOKIE;
+  return `${name}=; ${cookieSuffix()}; Max-Age=0`;
 }
 
 function readRawBody(req, limit = 262144) {
@@ -230,7 +236,46 @@ async function handle(req, res, db, options) {
     return;
   }
 
-  let session = loadSession(db, readCookie(req, COOKIE));
+  if (options.publicDemo && !options.publicSession && req.method === "POST" && pathname === "/api/public-demo") {
+    if (!withinRateLimit(options, req, "public-demo", 8, 15 * 60 * 1000)) {
+      send(res, 429, { error: "Too many demo sessions were opened. Try again later." });
+      return;
+    }
+    const opened = await options.publicDemo.enter();
+    if (opened.status !== 200) {
+      send(res, opened.status, { error: opened.error });
+      return;
+    }
+    send(res, 200, opened.payload, {
+      "set-cookie": setSessionCookie(opened.token, {
+        cookieName: PUBLIC_COOKIE,
+        publicSession: true,
+        publicTtlMs: options.publicDemo.ttlMs,
+      }),
+    });
+    return;
+  }
+
+  if (options.publicDemo && !options.publicSession) {
+    const publicToken = readCookie(req, PUBLIC_COOKIE);
+    if (publicToken) {
+      const opened = options.publicDemo.open(publicToken);
+      if (!opened) {
+        send(res, 401, { error: "This demo session expired." }, { "set-cookie": clearSessionCookie({ cookieName: PUBLIC_COOKIE }) });
+        return;
+      }
+      return handle(req, res, opened.db, {
+        ...options,
+        publicDemo: null,
+        publicSession: true,
+        cookieName: PUBLIC_COOKIE,
+        publicTtlMs: opened.ttlMs,
+        demoRegistry: options.publicDemo,
+      });
+    }
+  }
+
+  let session = loadSession(db, readCookie(req, options.cookieName || COOKIE));
   if (session && !session.portal && !session.onboarding) session = alignSelectedClient(db, session);
   const blocked = crossSiteError(req);
   if (blocked) {
@@ -270,7 +315,7 @@ async function handle(req, res, db, options) {
     session,
     send,
     readBody,
-    setSessionCookie,
+    setSessionCookie: (token) => setSessionCookie(token, options),
     options,
     signInPortalAccount: signInPortal,
     startFirmSession: openFirmSession,
@@ -343,10 +388,63 @@ async function handle(req, res, db, options) {
     return;
   }
 
+  const demoRegistry = options.demoRegistry || options.publicDemo;
+  if (demoRegistry && req.method === "POST" && pathname === "/api/public-demo/interest") {
+    if (!withinRateLimit(options, req, "public-demo-interest", 10, 60 * 60 * 1000)) {
+      send(res, 429, { error: "Too many demo requests. Try again later." });
+      return;
+    }
+    const result = demoRegistry.saveInterest(await readBody(req));
+    if (result.error || result.status >= 400) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+  if (demoRegistry && req.method === "POST" && pathname === "/api/public-demo/event") {
+    if (!withinRateLimit(options, req, "public-demo-event", 60, 60 * 60 * 1000)) {
+      send(res, 429, { error: "Too many demo events. Try again later." });
+      return;
+    }
+    const body = await readBody(req);
+    const result = demoRegistry.recordEvent(String(body.feature || ""));
+    if (result.status >= 400) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
+    return;
+  }
+  if (options.publicSession && req.method === "POST" && pathname === "/api/public-demo/reset") {
+    const result = await options.demoRegistry.reset(readCookie(req, PUBLIC_COOKIE));
+    if (result.status !== 200) {
+      send(res, result.status, { error: result.error }, { "set-cookie": clearSessionCookie(options) });
+      return;
+    }
+    send(res, 200, result.payload, {
+      "set-cookie": setSessionCookie(result.token, options),
+    });
+    return;
+  }
+  if (options.publicSession && (pathname === "/api/public-demo/portal" || pathname === "/api/public-demo/firm") && req.method === "POST") {
+    const kind = pathname.endsWith("/portal") ? "portal" : "owner";
+    const token = options.demoRegistry.kindToken(readCookie(req, PUBLIC_COOKIE), kind);
+    const next = token ? loadSession(db, token) : null;
+    if (!next) {
+      send(res, 401, { error: "This demo session expired." }, { "set-cookie": clearSessionCookie(options) });
+      return;
+    }
+    if (kind === "portal") options.demoRegistry.recordEvent("portal");
+    send(res, 200, sessionPayload(db, next), { "set-cookie": setSessionCookie(token, options) });
+    return;
+  }
+  if (options.publicSession) {
+    const reason = publicDemoMutationError(db, req.method, pathname);
+    if (reason) {
+      send(res, 403, { error: reason });
+      return;
+    }
+  }
+
   if (session?.portal) {
     if (req.method === "DELETE" && pathname === "/api/session") {
       signOut(db, session);
-      send(res, 200, { ok: true }, { "set-cookie": clearSessionCookie() });
+      send(res, 200, { ok: true }, { "set-cookie": clearSessionCookie(options) });
       return;
     }
     if (req.method === "GET" && pathname === "/api/portal") {
@@ -438,7 +536,7 @@ async function handle(req, res, db, options) {
 
   if (req.method === "DELETE" && pathname === "/api/session") {
     if (session) signOut(db, session);
-    send(res, 200, { ok: true }, { "set-cookie": clearSessionCookie() });
+    send(res, 200, { ok: true }, { "set-cookie": clearSessionCookie(options) });
     return;
   }
 
@@ -1781,8 +1879,13 @@ function sendResult(res, result) {
 export function start(dbPath, port = 0, options = {}) {
   const db = openDatabase(dbPath);
   const staticDir = options.staticDir ? path.resolve(options.staticDir) : null;
+  const publicDemo = createPublicDemo({
+    dir: options.publicDemoDir || process.env.LEDGERLY_PUBLIC_DEMO_DIR || path.join(path.dirname(path.resolve(dbPath)), "public-demo"),
+    ttlMs: options.publicDemoTtlMs,
+    maxLive: options.publicDemoMaxLive,
+  });
   const server = createServer((req, res) => {
-    handle(req, res, db, { ...options, staticDir }).catch((error) => {
+    handle(req, res, db, { ...options, publicDemo, staticDir }).catch((error) => {
       const status = error.status || 500;
       if (!res.headersSent) send(res, status, { error: status === 500 ? "Something went wrong." : error.message });
     });
@@ -1790,6 +1893,7 @@ export function start(dbPath, port = 0, options = {}) {
   return new Promise((resolve) => {
     server.listen(port, "127.0.0.1", () => {
       let timer = null;
+      let demoTimer = null;
       try {
         runRecurringBilling(db);
         timer = setInterval(() => {
@@ -1800,11 +1904,21 @@ export function start(dbPath, port = 0, options = {}) {
           }
         }, 60 * 60 * 1000);
         if (typeof timer.unref === "function") timer.unref();
+        demoTimer = setInterval(() => {
+          try {
+            publicDemo.sweep();
+          } catch (error) {
+            console.error(error);
+          }
+        }, 60 * 1000);
+        if (typeof demoTimer.unref === "function") demoTimer.unref();
       } catch (error) {
         console.error(error);
       }
       server.on("close", () => {
         if (timer) clearInterval(timer);
+        if (demoTimer) clearInterval(demoTimer);
+        publicDemo.close();
       });
       resolve({ server, db, port: server.address().port });
     });

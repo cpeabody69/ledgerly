@@ -209,8 +209,11 @@ export function portalPayload(db, session) {
   ).get(session.client_user_id, session.firm_id, session.client_id);
   const firm = db.prepare("SELECT id, name FROM firms WHERE id = ?").get(session.firm_id);
   const client = db.prepare("SELECT * FROM clients WHERE id = ? AND firm_id = ?").get(session.client_id, session.firm_id);
+  const publicDemo = Boolean(db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'public_demo_marker'").get());
   return {
     portal: true,
+    publicDemo,
+    ...(publicDemo ? { demoNotice: "Avenue Pro is in development. This temporary firm is fictional, expires on its own, and is not a customer record." } : {}),
     user: {
       id: user.id,
       name: user.name,
@@ -218,7 +221,7 @@ export function portalPayload(db, session) {
       role: "client",
       roleLabel: "Business Client",
     },
-    firm: { id: firm.id, name: firm.name },
+    firm: { id: firm.id, name: firm.name, demo: publicDemo },
     client: client ? clientJson(client) : null,
   };
 }

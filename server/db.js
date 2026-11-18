@@ -228,6 +228,10 @@ function memberJson(row) {
   };
 }
 
+function publicDemoMarker(db) {
+  return Boolean(db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'public_demo_marker'").get());
+}
+
 export function sessionPayload(db, session) {
   if (session.portal) return portalPayload(db, session);
   if (session.onboarding) return onboardingPayload(db, session);
@@ -241,6 +245,7 @@ export function sessionPayload(db, session) {
   const selected = visibleRows.find((row) => row.id === session.selected_client_id) || null;
   const members = db.prepare("SELECT id, name, email, role FROM users WHERE firm_id = ? ORDER BY created_at, name").all(session.firm_id).map(memberJson);
   const checklist = checklistFor(db, firm.id);
+  const publicDemo = publicDemoMarker(db);
   return {
     user: memberJson(user),
     firm: { id: firm.id, name: firm.name, requireReceipt: firm.require_receipt === 1, demo: Number(firm.demo) === 1 },
@@ -248,6 +253,8 @@ export function sessionPayload(db, session) {
     client: selected ? clientJson(selected) : null,
     members,
     subscription: subscriptionSummary(db, session.firm_id),
+    publicDemo,
+    ...(publicDemo ? { demoNotice: "Avenue Pro is in development. This temporary firm is fictional, expires on its own, and is not a customer record." } : {}),
     ...(checklist ? { checklist } : {}),
   };
 }

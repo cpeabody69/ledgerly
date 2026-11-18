@@ -6,6 +6,7 @@ import { SubscribeReturn, SubscriptionBanner } from "./Subscription.jsx";
 import { Privacy } from "./Privacy.jsx";
 import { Terms } from "./Terms.jsx";
 import { ProductSite } from "./ProductSite.jsx";
+import { DemoMode } from "./DemoMode.jsx";
 
 const PUBLIC_PATHS = new Set(["/register", "/forgot-password", "/reset-password", "/verify-email", "/invitation"]);
 
@@ -27,6 +28,8 @@ function usePath() {
 export function App() {
   const [session, setSession] = useState(undefined);
   const [path, go] = usePath();
+  const [tour, setTour] = useState({ screen: "", nonce: 0 });
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     let cancel = false;
@@ -61,12 +64,30 @@ export function App() {
   if (session.onboarding || path === "/onboarding") {
     return <OnboardingScreen session={session} onSession={setSession} go={go} />;
   }
-  if (session.portal) return <Portal session={session} onSession={setSession} />;
-  return (
+  const openScreen = (screen) => setTour((current) => ({ screen, nonce: current.nonce + 1 }));
+  if (session.portal) {
+    const portal = <Portal session={session} onSession={setSession} />;
+    if (!session.publicDemo) return portal;
+    return (
+      <div className="demo-app is-portal">
+        <DemoMode session={session} onSession={setSession} onOpenScreen={openScreen} />
+        {portal}
+      </div>
+    );
+  }
+  const shell = (
     <>
       <SubscriptionBanner session={session} go={go} />
       <ChecklistBanner session={session} go={go} />
-      <Te session={session} onSession={setSession} />
+      <Te session={session} onSession={setSession} requestedScreen={tour.screen} requestedNonce={tour.nonce} />
     </>
+  );
+  if (!session.publicDemo) return shell;
+  return (
+    <div className={`demo-app${navOpen ? " is-nav-open" : ""}`}>
+      <DemoMode session={session} onSession={setSession} onOpenScreen={openScreen} onToggleNav={() => setNavOpen((open) => !open)} onRequestNav={setNavOpen} />
+      {shell}
+      {navOpen ? <button className="demo-nav-scrim" type="button" aria-label="Close menu" onClick={() => setNavOpen(false)} /> : null}
+    </div>
   );
 }

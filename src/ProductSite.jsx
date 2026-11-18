@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Brand } from "./AuthScreens.jsx";
+import { InterestDialog } from "./DemoMode.jsx";
 
 function Frame({ children }) {
   return (
@@ -29,12 +30,13 @@ function Frame({ children }) {
 export function ProductSite({ path, go, onSession }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [dialog, setDialog] = useState("");
 
   async function openDemo() {
     setPending(true);
     setError("");
     try {
-      const response = await fetch("/api/demo/enter", { method: "POST" });
+      const response = await fetch("/api/public-demo", { method: "POST" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         setError(body.error || "The fictional demo could not be opened.");
@@ -66,10 +68,21 @@ export function ProductSite({ path, go, onSession }) {
   if (path === "/demo") {
     return (
       <Frame>
-        <h1>Fictional demo</h1>
-        <p className="lede">The demo opens a fictional firm with fictional clients. It is not a client’s books, and the checks it runs are not an audit opinion.</p>
+        <p className="eyebrow">In development</p>
+        <h1>Try Avenue Pro with a fictional firm</h1>
+        <p className="lede">The demo opens immediately. It does not ask for an account, a card, or a bank connection. Avenue Pro is in development, and this firm is fictional.</p>
+        <ul className="product-list">
+          <li><strong>Isolated session</strong><span>Your visit gets its own temporary copy. It expires and is deleted.</span></li>
+          <li><strong>Fictional books</strong><span>Twenty-five clients, three accountants, and statements calculated from those journals.</span></li>
+          <li><strong>No production actions</strong><span>Uploads, payments, bank connections, external email, and production integrations stay off.</span></li>
+        </ul>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <button className="button primary" type="button" onClick={openDemo} disabled={pending}>{pending ? "Opening…" : "Open the fictional demo"}</button>
+        <div className="product-actions">
+          <button className="button primary demo-cta" type="button" onClick={openDemo} disabled={pending}>{pending ? "Opening…" : "Try Free Demo"}</button>
+          <button className="button secondary" type="button" onClick={() => setDialog("beta")}>Join the beta</button>
+          <button className="button secondary" type="button" onClick={() => setDialog("personal")}>Request a personal demo</button>
+        </div>
+        {dialog ? <InterestDialog kind={dialog} onClose={() => setDialog("")} /> : null}
       </Frame>
     );
   }
@@ -90,10 +103,11 @@ export function ProductSite({ path, go, onSession }) {
       <h1>The practice workspace for client books.</h1>
       <p className="lede">Avenue Pro keeps the ledger, close, billing, and client work for an accounting firm. It is part of Avenue Software and runs separately from Avenue Tax. It does not prepare or transmit a return.</p>
       <div className="product-actions">
-        <button className="button primary" type="button" onClick={() => go("/beta")}>Join the beta</button>
-        <button className="button secondary" type="button" onClick={() => go("/demo")}>Open the demo</button>
+        <button className="button primary demo-cta" type="button" onClick={() => go("/demo")}>Try Free Demo</button>
+        <button className="button secondary" type="button" onClick={() => go("/beta")}>Join the beta</button>
         <button className="button secondary" type="button" onClick={() => go("/sign-in")}>Sign in</button>
       </div>
+      <p>Avenue Pro is in development. The demo uses a fictional firm and does not file a return or move money.</p>
     </Frame>
   );
 }

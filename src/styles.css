@@ -8,6 +8,52 @@
 .product-list{display:grid;gap:12px;padding:0;list-style:none}
 .product-list li{background:white;border:1px solid var(--border);border-radius:14px;padding:16px;display:grid;gap:6px}
 .product-foot{margin-top:auto;color:var(--muted);border-top:1px solid var(--border)}
+.demo-cta{font-size:17px;padding:12px 18px}
+.demo-banner{position:fixed;top:0;left:248px;right:0;z-index:40;height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;background:#fff;color:var(--navy);border-bottom:1px solid var(--border);box-shadow:0 1px 0 #18293d0a}
+.demo-banner p{margin:0}
+.demo-banner .button{height:28px;padding:0 10px;font-size:11px}
+.demo-menu{display:none}
+.demo-banner-copy{display:flex;align-items:center;gap:8px;min-width:0;flex:1;font-size:12px}
+.demo-banner-copy strong{flex:none}
+.demo-banner-copy span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.demo-banner-actions{display:flex;align-items:center;gap:6px;flex:none}
+.demo-banner-status{position:absolute;left:16px;top:44px;background:#f4fbf8;color:#285d49;border:1px solid #cfe4db;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600}
+.demo-app main,.demo-app .client-portal{padding-top:44px}
+.demo-app .topbar,.demo-app .portal-bar{top:44px}
+.demo-nav-scrim{display:none}
+.tour-layer{position:fixed;inset:0;z-index:80;pointer-events:none}
+.tour-hole{position:fixed;border-radius:8px;box-shadow:0 0 0 9999px #101f3280;pointer-events:none}
+.tour-tip{position:fixed;pointer-events:auto;background:#fff;border:1px solid #dce3eb;border-radius:8px;box-shadow:0 8px 24px #07111f29;padding:14px 16px;color:var(--navy)}
+.tour-tip h2{margin:0 0 6px;font-size:15px}
+.tour-tip p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+.tour-progress{color:var(--blue);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+.tour-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
+.tour-actions span{display:flex;gap:6px}
+.demo-privacy{color:var(--muted);font-size:12px;line-height:1.45;margin:0}
+.demo-ack{grid-template-columns:16px 1fr;align-items:start}
+.demo-ack input{width:16px;height:16px;margin-top:2px}
+.demo-ack span{font-size:12px;color:var(--navy);font-weight:600}
+.demo-dialog .field>span{font-size:12px}
+.demo-dialog .field input,.demo-dialog .field textarea{font-size:14px}
+.demo-saved{margin:0;padding:0 21px 12px;color:#285d49;font-size:13px}
+body:has(.demo-app){min-width:0}
+@media (max-width:900px){
+  .demo-menu{display:inline-flex}
+  .demo-banner{position:sticky;left:auto;right:auto;height:auto;min-height:44px;flex-wrap:wrap;padding:8px 10px}
+  .demo-app main,.demo-app .client-portal{padding-top:0}
+  .demo-app .topbar,.demo-app .portal-bar{top:0}
+  .demo-banner-copy{flex-basis:100%;order:2}
+  .demo-banner-actions{order:3;flex-wrap:wrap}
+  .demo-app .sidebar{transform:translateX(-105%);transition:transform .18s ease}
+  .demo-app.is-nav-open .sidebar{transform:none;z-index:50}
+  .demo-app main{width:100%;margin-left:0}
+  .demo-app.is-nav-open .demo-nav-scrim{display:block;position:fixed;inset:0;z-index:45;background:#101f3266;border:0;padding:0}
+  .demo-app .metrics-grid,.demo-app .dashboard-main,.demo-app .dashboard-lower,.demo-app .firm-grid{grid-template-columns:1fr}
+  .demo-app .page-header{flex-direction:column}
+  .demo-app .global-search{width:auto;flex:1}
+  .demo-app .global-search kbd,.demo-app .profile span{display:none}
+  .tour-tip{left:12px!important;right:12px;width:auto!important}
+}
 @media(max-width:720px){.product-bar,.product-foot{align-items:flex-start;flex-direction:column}}
 
 :root{
@@ -2283,3 +2329,10 @@ td strong,.books-table .num{font-variant-numeric:tabular-nums}
 .close-note{display:block;margin:12px 0}
 .close-package{margin-top:16px}
 @media (max-width: 800px){.close-layout{grid-template-columns:1fr}}
+.demo-dialog .demo-ack input{width:16px;height:16px;padding:0;border-radius:3px}
+.demo-dialog textarea{width:100%;min-height:84px;padding:8px 10px;color:var(--navy);border:1px solid #d8e0e8;border-radius:7px;font:inherit;font-size:14px}
+.demo-banner .demo-menu{display:none}
+@media (max-width:900px){
+  .demo-banner .demo-menu{display:inline-flex}
+  .demo-banner-actions{flex:1 1 100%;flex-wrap:wrap}
+}
