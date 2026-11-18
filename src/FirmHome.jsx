@@ -171,7 +171,7 @@ export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose
                 {home.tax.clients.filter((client) => client.status !== "ready").slice(0, 8).map((client) => (
                   <li key={client.id}>
                     <button type="button" className="text-button" onClick={() => onOpenTax ? onOpenTax(client.id) : onOpenClient(client.id)}>{client.name}</button>
-                    <small>{client.statusLabel} · {client.outstanding} open</small>
+                    <small>{client.statusLabel} · {client.booksSource === "quickbooks" ? "QuickBooks sandbox" : "Avenue books"} · {client.outstanding} open</small>
                   </li>
                 ))}
               </ul>

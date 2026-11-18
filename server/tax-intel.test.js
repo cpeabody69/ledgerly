@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -33,7 +34,7 @@ async function withServer(fn) {
   const running = await start(dbPath, 0);
   const base = `http://127.0.0.1:${running.port}`;
   try {
-    await fn(base);
+    await fn(base, dbPath);
   } finally {
     await new Promise((resolve, reject) => running.server.close((error) => (error ? reject(error) : resolve())));
     await rm(dir, { recursive: true, force: true });
@@ -324,5 +325,124 @@ test("a flagged line and an uncategorized line become one task each until they a
     assert.equal(scenario.body.scenario.selfEmploymentTaxCents < scenario.body.base.selfEmploymentTaxCents, true);
     assert.match(scenario.body.retirement.note, /does not reduce self-employment tax/);
     assert.match(scenario.body.depreciation.note, /does not post to the books/);
+  });
+});
+
+test("quickbooks authority uses the sandbox mirror and leaves the avenue ledger alone", async () => {
+  await withServer(async (base, dbPath) => {
+    const olivia = cookieJar();
+    const signedIn = await signIn(olivia, base, firms.northstar.owner);
+    const creative = signedIn.client;
+    const ledger = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    const cash = accountId(ledger, "1000");
+    const income = accountId(ledger, "4000");
+    const posted = await sendJson(olivia, base, "POST", "/api/journal-entries", {
+      entryDate: "2026-02-02",
+      memo: "Avenue only",
+      lines: [
+        { accountId: cash, debit: "50.00", credit: "" },
+        { accountId: income, debit: "", credit: "50.00" },
+      ],
+    });
+    assert.equal(posted.response.status, 201, posted.body.error);
+    const before = await (await olivia.fetch(`${base}/api/ledger`)).json();
+
+    await olivia.fetch(`${base}/api/tax-intel?year=2026`);
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE clients SET books_authority = 'quickbooks' WHERE id = ?").run(creative.id);
+    db.prepare(
+      `INSERT INTO quickbooks_records (
+        id, firm_id, client_id, connection_id, realm_id, entity_type, qbo_id, sync_token,
+        display_name, txn_date, amount_cents, summary_json, fingerprint, status, updated_at
+      ) VALUES (?, ?, ?, 'sandbox-connection', 'sandbox-realm', ?, ?, '1', ?, ?, ?, '{}', 'fingerprint', 'synced', ?)`,
+    ).run("rec-invoice", signedIn.firm.id, creative.id, "Invoice", "10", "Design invoice", "2026-02-02", 1000000, new Date().toISOString());
+    db.prepare(
+      `INSERT INTO quickbooks_records (
+        id, firm_id, client_id, connection_id, realm_id, entity_type, qbo_id, sync_token,
+        display_name, txn_date, amount_cents, summary_json, fingerprint, status, updated_at
+      ) VALUES (?, ?, ?, 'sandbox-connection', 'sandbox-realm', 'JournalEntry', '30', '1', 'Owner journal', '2026-03-01', 3000, '{}', 'fingerprint-je', 'synced', ?)`,
+    ).run("rec-journal", signedIn.firm.id, creative.id, new Date().toISOString());
+    db.close();
+
+    const mirror = await (await olivia.fetch(`${base}/api/tax-intel/${creative.id}?year=2026`)).json();
+    assert.equal(mirror.booksSource, "quickbooks");
+    assert.equal(mirror.rulesVersion, "2026.1");
+    assert.equal(mirror.yearToDate.incomeCents, 1000000);
+    assert.equal(mirror.yearToDate.expenseCents, 0);
+    assert.match(mirror.sourceNote, /not posted to the Avenue ledger/);
+    assert.equal(mirror.mappings.some((row) => row.accountId === "qbo:JournalEntry:30" && row.needsReview), true);
+    const [year, month, day] = mirror.asOf.split("-").map(Number);
+    const elapsed = Math.round((Date.UTC(year, month - 1, day) - Date.UTC(year, 0, 1)) / 86400000) + 1;
+    assert.equal(mirror.projection.method, "annualized");
+    assert.equal(mirror.projection.projectedCents, Math.round((1000000 * 365) / elapsed));
+
+    const mapped = await sendJson(olivia, base, "POST", `/api/tax-intel/${creative.id}/mappings`, {
+      year: 2026,
+      accountId: "qbo:Invoice:10",
+      lineKey: "gross_receipts",
+      deductiblePercent: 100,
+      reason: "Sandbox invoice is gross receipts.",
+    });
+    assert.equal(mapped.response.status, 200, mapped.body.error);
+    const journalMapped = await sendJson(olivia, base, "POST", `/api/tax-intel/${creative.id}/mappings`, {
+      year: 2026,
+      accountId: "qbo:JournalEntry:30",
+      lineKey: "owner_draw",
+      deductiblePercent: 0,
+      reason: "Sandbox journal is a draw.",
+    });
+    assert.equal(journalMapped.response.status, 200, journalMapped.body.error);
+    assert.equal(journalMapped.body.yearToDate.incomeCents, 1000000);
+    assert.equal(journalMapped.body.mappings.find((row) => row.accountId === "qbo:JournalEntry:30").needsReview, false);
+
+    const profile = await sendJson(olivia, base, "POST", `/api/tax-intel/${creative.id}/profile`, {
+      year: 2026,
+      entityType: "sole_proprietor",
+      filingStatus: "single",
+      otherWages: "0.00",
+    });
+    assert.equal(profile.response.status, 200, profile.body.error);
+    assert.equal(profile.body.estimate.status, "calculated");
+    assert.equal(profile.body.estimate.rulesVersion, "2026.1");
+    assert.equal(profile.body.estimate.filesReturn, false);
+    assert.equal(profile.body.estimate.transmits, false);
+    assert.match(profile.body.estimate.assumptions.join(" "), /year-to-date tax profit/);
+
+    const csv = await (await olivia.fetch(`${base}/api/tax-intel/${creative.id}/workpaper.csv?year=2026`)).text();
+    assert.match(csv, /source,quickbooks,2026.1/);
+    const after = await (await olivia.fetch(`${base}/api/ledger`)).json();
+    assert.equal(after.entries.length, before.entries.length);
+
+    const board = await (await olivia.fetch(`${base}/api/tax-intel?year=2026`)).json();
+    assert.equal(board.clients.find((client) => client.id === creative.id).booksSource, "quickbooks");
+    assert.equal(JSON.stringify(board).includes("$"), false);
+
+    const blocked = await sendJson(olivia, base, "POST", "/api/journal-entries", {
+      entryDate: "2026-02-03",
+      memo: "Should not post",
+      lines: [
+        { accountId: cash, debit: "10.00", credit: "" },
+        { accountId: income, debit: "", credit: "10.00" },
+      ],
+    });
+    assert.equal(blocked.response.status, 409);
+
+    const sam = cookieJar();
+    await signIn(sam, base, firms.northstar.members.find((member) => member.email === "sam@northstarcreative.co"));
+    const denied = await sendJson(sam, base, "POST", `/api/tax-intel/${creative.id}/mappings`, {
+      year: 2026,
+      accountId: "qbo:Invoice:10",
+      lineKey: "other_income",
+      deductiblePercent: 100,
+      reason: "Staff cannot remap this invoice.",
+    });
+    assert.equal(denied.response.status, 403);
+
+    const reopen = new DatabaseSync(dbPath);
+    reopen.prepare("UPDATE clients SET books_authority = 'avenue' WHERE id = ?").run(creative.id);
+    reopen.close();
+    const avenue = await (await olivia.fetch(`${base}/api/tax-intel/${creative.id}?year=2026`)).json();
+    assert.equal(avenue.booksSource, "avenue");
+    assert.equal(avenue.yearToDate.incomeCents, 5000);
   });
 });

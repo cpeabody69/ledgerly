@@ -2,7 +2,9 @@
 import { randomUUID } from "node:crypto";
 import { lookupClient, scopeSql } from "./access.js";
 import { depreciationScenario, planSoleProp, projectAnnual, retirementScenario, splitQuarters } from "./tax-calc.js";
+import { RULES_VERSION, RULES_YEAR } from "./tax-rules.js";
 import { canApproveBills } from "./permissions.js";
+import { authorityFor } from "./quickbooks/mirror.js";
 import { parseCents } from "../shared/money.js";
 
 const SCHEMA = `
@@ -33,6 +35,19 @@ CREATE TABLE IF NOT EXISTS tax_account_maps (
   updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tax_account_maps_account ON tax_account_maps (firm_id, client_id, tax_year, account_id);
+CREATE TABLE IF NOT EXISTS tax_external_maps (
+  id TEXT PRIMARY KEY,
+  firm_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  tax_year INTEGER NOT NULL,
+  source_key TEXT NOT NULL,
+  line_key TEXT NOT NULL,
+  deductible_bps INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (firm_id, client_id, tax_year, source_key)
+);
 CREATE TABLE IF NOT EXISTS tax_adjustments (
   id TEXT PRIMARY KEY,
   firm_id TEXT NOT NULL REFERENCES firms(id),
@@ -241,7 +256,46 @@ function signedBook(row) {
   return 0;
 }
 
-function classify(db, session, client, year, start, end) {
+function externalMaps(db, session, clientId, year) {
+  const rows = db.prepare(
+    "SELECT source_key, line_key, deductible_bps, reason FROM tax_external_maps WHERE firm_id = ? AND client_id = ? AND tax_year = ?",
+  ).all(session.firm_id, clientId, year);
+  return new Map(rows.map((row) => [row.source_key, row]));
+}
+
+function finishBooks(db, session, client, year, bookIncome, bookExpense, taxIncome, taxDeduction, mappings, extra = {}) {
+  const adjustments = db.prepare(
+    "SELECT id, label, book_cents, tax_cents, reason, status FROM tax_adjustments WHERE firm_id = ? AND client_id = ? AND tax_year = ? ORDER BY created_at",
+  ).all(session.firm_id, client.id, year);
+  const accepted = adjustments.filter((row) => row.status === "accepted").reduce((sum, row) => sum + (Number(row.book_cents) - Number(row.tax_cents)), 0);
+  return {
+    bookIncome,
+    bookExpense,
+    bookNet: bookIncome - bookExpense,
+    taxIncome,
+    taxDeduction,
+    taxProfit: taxIncome - taxDeduction + accepted,
+    mappings,
+    adjustments: adjustments.map((row) => ({
+      id: row.id,
+      label: row.label,
+      bookCents: Number(row.book_cents),
+      taxCents: Number(row.tax_cents),
+      reason: row.reason,
+      status: row.status,
+    })),
+    ...extra,
+  };
+}
+
+function taxFromLine(lineKey, book, bps) {
+  const kind = LINES[lineKey]?.[1] || "excluded";
+  if (kind === "income") return lineKey === "returns" ? -Math.round((book * bps) / 10000) : Math.round((book * bps) / 10000);
+  if (kind === "expense") return Math.round((book * bps) / 10000);
+  return 0;
+}
+
+function classifyLedger(db, session, client, year, start, end) {
   const overrides = storedMaps(db, session, client.id, year);
   const rows = activity(db, session, client.id, start, end);
   let bookIncome = 0;
@@ -258,10 +312,7 @@ function classify(db, session, client, year, start, end) {
     const base = defaultMap(row);
     const lineKey = stored?.line_key || base.lineKey;
     const bps = stored ? Number(stored.deductible_bps) : base.deductibleBps;
-    const kind = LINES[lineKey]?.[1] || "excluded";
-    let tax = 0;
-    if (kind === "income") tax = lineKey === "returns" ? -Math.round((book * bps) / 10000) : Math.round((book * bps) / 10000);
-    if (kind === "expense") tax = Math.round((book * bps) / 10000);
+    const tax = taxFromLine(lineKey, book, bps);
     if (row.type === "income") taxIncome += tax;
     if (row.type === "expense") taxDeduction += tax;
     if (book !== 0 || stored || (row.code === "3100" && movement !== 0)) {
@@ -281,29 +332,76 @@ function classify(db, session, client, year, start, end) {
       });
     }
   }
-  const adjustments = db.prepare(
-    "SELECT id, label, book_cents, tax_cents, reason, status FROM tax_adjustments WHERE firm_id = ? AND client_id = ? AND tax_year = ? ORDER BY created_at",
-  ).all(session.firm_id, client.id, year);
-  const accepted = adjustments.filter((row) => row.status === "accepted").reduce((sum, row) => sum + (Number(row.book_cents) - Number(row.tax_cents)), 0);
-  const bookNet = bookIncome - bookExpense;
-  const taxProfit = taxIncome - taxDeduction + accepted;
-  return {
-    bookIncome,
-    bookExpense,
-    bookNet,
-    taxIncome,
-    taxDeduction,
-    taxProfit,
-    mappings,
-    adjustments: adjustments.map((row) => ({
-      id: row.id,
-      label: row.label,
-      bookCents: Number(row.book_cents),
-      taxCents: Number(row.tax_cents),
-      reason: row.reason,
-      status: row.status,
-    })),
-  };
+  return finishBooks(db, session, client, year, bookIncome, bookExpense, taxIncome, taxDeduction, mappings, {
+    booksSource: "avenue",
+    conflictCount: 0,
+    sourceNote: "Amounts come from posted Avenue journal entries.",
+  });
+}
+
+function classifyMirror(db, session, client, year, start, end) {
+  const overrides = externalMaps(db, session, client.id, year);
+  const records = db.prepare(
+    `SELECT entity_type, qbo_id, txn_date, amount_cents, display_name, status
+     FROM quickbooks_records
+     WHERE firm_id = ? AND client_id = ?
+       AND entity_type IN ('Invoice', 'Bill', 'Purchase', 'JournalEntry')
+     ORDER BY txn_date, entity_type, qbo_id`,
+  ).all(session.firm_id, client.id);
+  let bookIncome = 0;
+  let bookExpense = 0;
+  let taxIncome = 0;
+  let taxDeduction = 0;
+  const mappings = [];
+  let conflictCount = 0;
+  for (const row of records) {
+    if (row.txn_date < start || row.txn_date > end) continue;
+    if (row.status === "conflict") conflictCount += 1;
+    const amount = Number(row.amount_cents || 0);
+    if (!amount) continue;
+    const key = `qbo:${row.entity_type}:${row.qbo_id}`;
+    const stored = overrides.get(key);
+    const suggested = row.entity_type === "Invoice" ? "gross_receipts" : "other";
+    const lineKey = stored?.line_key || suggested;
+    const bps = stored ? Number(stored.deductible_bps) : 10000;
+    const kind = LINES[lineKey]?.[1] || "excluded";
+    const tax = taxFromLine(lineKey, amount, bps);
+    const countsInBooks = Boolean(stored) || row.entity_type !== "JournalEntry";
+    if (countsInBooks && kind === "income") {
+      bookIncome += amount;
+      taxIncome += tax;
+    }
+    if (countsInBooks && kind === "expense") {
+      bookExpense += amount;
+      taxDeduction += tax;
+    }
+    mappings.push({
+      accountId: key,
+      code: "QBO",
+      name: row.display_name || `${row.entity_type} ${row.qbo_id}`,
+      type: kind === "income" ? "income" : kind === "expense" ? "expense" : "journal",
+      lineKey,
+      lineLabel: LINES[lineKey]?.[0] || lineKey,
+      bookCents: amount,
+      taxCents: countsInBooks ? tax : 0,
+      deductibleBps: bps,
+      source: stored ? "accountant" : "suggested",
+      needsReview: !stored,
+      reason: stored?.reason || (row.status === "conflict" ? "This sandbox record changed and is waiting for a decision." : ""),
+    });
+  }
+  return finishBooks(db, session, client, year, bookIncome, bookExpense, taxIncome, taxDeduction, mappings, {
+    booksSource: "quickbooks",
+    conflictCount,
+    sourceNote: "Amounts come from the QuickBooks sandbox mirror. They are not posted to the Avenue ledger.",
+  });
+}
+
+function classify(db, session, client, year, start, end) {
+  const source = authorityFor(db, session.firm_id, client.id);
+  return source === "quickbooks"
+    ? classifyMirror(db, session, client, year, start, end)
+    : classifyLedger(db, session, client, year, start, end);
 }
 
 function flagsFor(db, session, clientId, year) {
@@ -372,6 +470,7 @@ function blockersFor(db, session, client, year, books, flags, today) {
   if (openAdjustments.length) blockers.push({ key: "adjustments", detail: `${openAdjustments.length} book-to-tax adjustments are still open.` });
   if (flags.length) blockers.push({ key: "flags", detail: `${flags.length} transactions still need a tax-treatment review.` });
   if (books.mappings.some((row) => row.needsReview)) blockers.push({ key: "mappings", detail: "An account still needs an accountant to confirm its tax category." });
+  if (books.conflictCount) blockers.push({ key: "qb_conflict", detail: `${books.conflictCount} QuickBooks sandbox ${books.conflictCount === 1 ? "record is" : "records are"} waiting for a decision.` });
   return blockers;
 }
 
@@ -470,6 +569,9 @@ function snapshot(db, session, client, year, today = todayIso()) {
     eligible,
     filesReturn: false,
     transmits: false,
+    booksSource: books.booksSource,
+    rulesVersion: year === RULES_YEAR ? RULES_VERSION : "",
+    sourceNote: books.sourceNote,
     profile: profile ? {
       entityType: profile.entity_type,
       filingStatus: profile.filing_status,
@@ -510,6 +612,8 @@ export function taxBoard(db, session, query = {}) {
       status: view.status,
       statusLabel: view.statusLabel,
       entityType: view.profile?.entityType || "unknown",
+      booksSource: view.booksSource,
+      rulesVersion: view.rulesVersion,
       outstanding: view.blockers.length,
       eligible: view.eligible,
     };
@@ -527,6 +631,7 @@ export function taxBoard(db, session, query = {}) {
         outstanding: rows.reduce((sum, row) => sum + row.outstanding, 0),
       },
       clients: rows,
+      rulesVersion: year === RULES_YEAR ? RULES_VERSION : "",
       note: "Planning estimates are not returns and are not transmitted.",
     },
   };
@@ -608,20 +713,37 @@ export function saveTaxMapping(db, session, clientId, input) {
   const account = db.prepare(
     "SELECT id FROM accounts WHERE id = ? AND firm_id = ? AND client_id = ?",
   ).get(body.accountId, session.firm_id, client.id);
-  if (!account) return fail(404, "Account not found.");
+  const externalKey = String(body.accountId || "");
+  const external = externalKey.match(/^qbo:(Invoice|Bill|Purchase|JournalEntry):([A-Za-z0-9._-]{1,40})$/);
+  if (!account && !(external && authorityFor(db, session.firm_id, client.id) === "quickbooks")) return fail(404, "Account not found.");
   const percent = Number(body.deductiblePercent);
   if (![0, 50, 100].includes(percent)) return fail(400, "Choose 0, 50, or 100 percent.");
   const reason = String(body.reason || "").trim();
   if (reason.length < 8 || reason.length > 500) return fail(400, "Enter a reason for the tax category.");
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO tax_account_maps (
-      id, firm_id, client_id, tax_year, account_id, line_key, deductible_bps, reason, updated_by, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(firm_id, client_id, tax_year, account_id)
-    DO UPDATE SET line_key = excluded.line_key, deductible_bps = excluded.deductible_bps, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
-  ).run(randomUUID(), session.firm_id, client.id, year, account.id, lineKey, percent * 100, reason, user.id, now);
-  auditTax(db, session, "tax.mapping_override", client.id, account.id, reason);
+  if (account) {
+    db.prepare(
+      `INSERT INTO tax_account_maps (
+        id, firm_id, client_id, tax_year, account_id, line_key, deductible_bps, reason, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(firm_id, client_id, tax_year, account_id)
+      DO UPDATE SET line_key = excluded.line_key, deductible_bps = excluded.deductible_bps, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    ).run(randomUUID(), session.firm_id, client.id, year, account.id, lineKey, percent * 100, reason, user.id, now);
+  } else {
+    const stored = db.prepare(
+      "SELECT qbo_id FROM quickbooks_records WHERE firm_id = ? AND client_id = ? AND entity_type = ? AND qbo_id = ?",
+    ).get(session.firm_id, client.id, external[1], external[2]);
+    if (!stored) return fail(404, "QuickBooks record not found.");
+    db.prepare(
+      `INSERT INTO tax_external_maps (
+        id, firm_id, client_id, tax_year, source_key, line_key, deductible_bps, reason, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(firm_id, client_id, tax_year, source_key)
+      DO UPDATE SET line_key = excluded.line_key, deductible_bps = excluded.deductible_bps, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    ).run(randomUUID(), session.firm_id, client.id, year, externalKey, lineKey, percent * 100, reason, user.id, now);
+  }
+  auditTax(db, session, "tax.mapping_override", client.id, account?.id || externalKey, reason);
+  syncTaxIssues(db, session, year, client.id);
   return { status: 200, payload: snapshot(db, session, client, year) };
 }
 
@@ -799,6 +921,7 @@ export function taxWorkpaperFile(db, session, clientId, query, kind) {
   const bridge = view.yearToDate.taxProfitCents - view.yearToDate.netCents;
   const rows = [
     ["section", "label", "book_cents", "tax_cents"],
+    ["source", view.booksSource, view.rulesVersion, ""],
     ["year_to_date", "income", view.yearToDate.incomeCents, ""],
     ["year_to_date", "expenses", view.yearToDate.expenseCents, ""],
     ["year_to_date", "book_net", view.yearToDate.netCents, ""],
@@ -820,6 +943,8 @@ export function taxWorkpaperFile(db, session, clientId, query, kind) {
   const text = [
     `${view.clientName} ${view.taxYear} tax workpaper`,
     "This workpaper is not a return and it is not transmitted.",
+    `Books source ${view.booksSource}. Rules ${view.rulesVersion || "none"}.`,
+    view.sourceNote,
     `Book net cents ${view.yearToDate.netCents}`,
     `Tax profit cents ${view.yearToDate.taxProfitCents}`,
     `Trial balance debits ${trial.debits} credits ${trial.credits}`,

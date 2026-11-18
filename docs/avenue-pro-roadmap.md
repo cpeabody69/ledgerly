@@ -19,7 +19,7 @@ Avenue Pro subscription billing is a third path. It is the firm's payment to Ave
 
 ## Verified in this repository
 
-Evidence is the module plus a passing test file. After Phase 9 the suite was 90 tests, 0 failed.
+Evidence is the module plus a passing test file. After Phase 11 the suite was 92 tests, 0 failed.
 
 | Area | Evidence | Status |
 | --- | --- | --- |
@@ -33,10 +33,10 @@ Evidence is the module plus a passing test file. After Phase 9 the suite was 90 
 | Payables and client invoices | `server/payables.test.js`, `server/invoices.test.js` | Working on the client ledger |
 | Firm fee billing | `server/billing.test.js` | Working; no card charge and no ledger post |
 | Plaid sandbox | `server/plaid.test.js` | Sandbox copy only; tokens are not a production vault |
-| QuickBooks | `server/quickbooks.test.js` | OAuth sandbox, encrypted tokens, one company-info read. Not full sync |
+| QuickBooks | `server/quickbooks.test.js` | Sandbox read-only sync. No write-back |
 | Work queues and schedules | `server/work.test.js`, `server/workflow.test.js` | Working |
 | Monthly close and period lock | `server/close.test.js` | Working |
-| Books-to-tax, sole proprietor, 2026 | `server/tax-calc.test.js`, `server/tax-intel.test.js` | Working as a planner, not a return |
+| Books-to-tax, sole proprietor, 2026 | `server/tax-calc.test.js`, `server/tax-intel.test.js` | Avenue journals or the QuickBooks mirror. Not a return |
 | Client portal and documents | `server/portal.test.js`, `server/portal-desk.test.js`, `server/documents.test.js` | Working with the limits below |
 
 ## Phase 8 limits that remain
@@ -62,17 +62,25 @@ Implemented on `cursor/firm-billing-aef1`. Covered by `server/billing.test.js`.
 
 Limits: the same hours cannot be placed on both a firm invoice and a client-ledger invoice. Recurring drafts are created on startup, hourly after that, and when the billing screen or the generate action runs. A second run does not create the same issue date again. Profit uses only the hours assigned to that engagement. No email reminder and no card charge.
 
+## Phase 10 — QuickBooks
+
+Implemented on `cursor/quickbooks-readonly-sync-aef1`. Covered by `server/quickbooks.test.js`.
+
+Sandbox OAuth, encrypted tokens, refresh, and disconnect stay in place. Read-only sync stores accounts, purchases, customers, vendors, invoices, bills, payments, journal entries, and the two financial reports. A repeat of the same record does not create a second copy. A changed record opens a conflict until an owner accepts QuickBooks or keeps the stored copy. Nothing in that sync posts to the Avenue ledger. A client can be marked Avenue or QuickBooks as the authoritative ledger. QuickBooks authority blocks a new Avenue journal entry.
+
+Limits: no write-back, a 1,000-row query cap, 40 stored report lines, and journal lines kept as a summary. Live Intuit hosts are refused. The Integrations screen was not exercised in a browser.
+
+## Phase 11 — Books-to-tax
+
+Implemented on `cursor/books-to-tax-quickbooks-aef1`. Covered by `server/tax-calc.test.js` and `server/tax-intel.test.js`.
+
+The planner still covers a sole proprietor for 2026 only. When the client ledger is Avenue, amounts come from posted journals. When the client is marked QuickBooks, amounts come from the sandbox invoice, bill, purchase, and journal-entry mirror and are not copied into Avenue journals. An accountant confirms each QuickBooks category before the client can be marked ready. Open adjustments, conflicts, and unconfirmed categories stay on the work queue. The firm dashboard lists every authorized client with a status and a books source. Workpapers export CSV and a text PDF. The published 2026 bracket checks remain in `server/tax-calc.test.js`.
+
+Limits: corporations and partnerships stay unsupported. No state tax, no credits, and no transmitted return. A year other than 2026 has no rules. QuickBooks journal entries stay out of profit until an accountant maps them. The tax-planning screen was not exercised in a browser.
+
 ## Phases not started
 
 These are the intended order. Do not skip one and call the product finished.
-
-### Phase 10 — QuickBooks
-
-Sandbox OAuth, encrypted tokens, refresh, and disconnect were already in place. Read-only sync now stores accounts, purchases, customers, vendors, invoices, bills, payments, journal entries, and the two financial reports. A repeat of the same record does not create a second copy. A changed record opens a conflict until an owner accepts QuickBooks or keeps the stored copy. Nothing in that sync posts to the Avenue ledger. A client can be marked Avenue or QuickBooks as the authoritative ledger. QuickBooks authority blocks a new Avenue journal entry. Write-back to QuickBooks is not implemented. Live Intuit hosts are refused.
-
-### Phase 11 — Books-to-tax beyond the sole proprietor
-
-The 2026 sole-proprietor planner exists. Other entity types, state tax, and a firm-wide readiness view that is more than a count are not done. Do not file returns.
 
 ### Phase 12 — Financial health
 

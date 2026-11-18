@@ -101,7 +101,7 @@ export function TaxPlanning({ clientId }) {
             {(board?.clients || []).map((client) => (
               <li key={client.id}>
                 <button type="button" className="text-button" onClick={() => loadPlan(client.id).catch((reason) => setError(reason.message))}>{client.name}</button>
-                <small>{client.statusLabel} · {client.outstanding} open</small>
+                <small>{client.statusLabel} · {client.booksSource === "quickbooks" ? "QuickBooks sandbox" : "Avenue books"} · {client.outstanding} open</small>
               </li>
             ))}
           </ul>
@@ -109,7 +109,7 @@ export function TaxPlanning({ clientId }) {
         {plan ? (
           <section className="card">
             <div className="card-header"><div><h2>{plan.clientName}</h2><p>{plan.statusLabel} · through {plan.asOf}</p></div></div>
-            <p className="books-note">{plan.note}</p>
+            <p className="books-note">{plan.note} {plan.sourceNote} Rules {plan.rulesVersion || "are not loaded for this year"}.</p>
             <div className="firm-metrics">
               <div className="card firm-metric"><b>{dollars(plan.yearToDate.incomeCents)}</b><span>Year-to-date revenue</span></div>
               <div className="card firm-metric"><b>{dollars(plan.yearToDate.expenseCents)}</b><span>Year-to-date expenses</span></div>
