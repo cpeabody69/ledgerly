@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { revealDocument } from "./document-bytes.js";
 import { firms } from "./accounts.js";
 import { start } from "./app.js";
 
@@ -254,7 +255,8 @@ test("a library file rejects the wrong type, stays in the firm, and keeps its by
     const db = new DatabaseSync(dbPath, { readOnly: true });
     const row = db.prepare("SELECT bytes, status FROM client_files WHERE id = ?").get(stored.body.file.id);
     assert.equal(row.status, "archived");
-    assert.equal(Buffer.compare(Buffer.from(row.bytes), csv), 0);
+    assert.equal(Buffer.compare(Buffer.from(row.bytes), csv) === 0, false);
+    assert.equal(Buffer.compare(revealDocument(row.bytes), csv), 0);
     const kinds = db.prepare(
       "SELECT kind, COUNT(*) AS count FROM document_records WHERE firm_id = ? GROUP BY kind",
     ).all(signedIn.firm.id);

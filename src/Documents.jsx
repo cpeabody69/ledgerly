@@ -51,6 +51,59 @@ async function contentBase64(file) {
   return btoa(binary);
 }
 
+function RequestTools({ clientId }) {
+  const [name, setName] = useState("");
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+
+  async function saveTemplate(event) {
+    event.preventDefault();
+    setNote("");
+    const response = await fetch("/api/document-templates", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, title, dueOffsetDays: 14 }),
+    });
+    const body = await readJson(response);
+    setNote(response.ok ? "Template saved." : (body.error || "The template was not saved."));
+  }
+
+  async function savePolicy(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setNote("");
+    const response = await fetch("/api/portal-policy", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requestApproval: form.approval.checked,
+        clientDownloads: form.downloads.checked,
+        retainDays: Number(form.days.value || 0),
+      }),
+    });
+    const body = await readJson(response);
+    setNote(response.ok ? "Policy saved." : (body.error || "The policy was not saved."));
+  }
+
+  return (
+    <section className="card">
+      <div className="card-header"><div><h2>Requests and retention</h2><p>Templates, accountant review, and how long files are kept. Client {clientId ? "files stay on this client." : ""}</p></div></div>
+      <form className="close-status-row" onSubmit={saveTemplate}>
+        <label>Template name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label>Request title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <Button type="submit" variant="secondary">Save template</Button>
+      </form>
+      <form className="close-status-row" onSubmit={savePolicy}>
+        <label><input name="approval" type="checkbox" /> Require accountant approval</label>
+        <label><input name="downloads" type="checkbox" defaultChecked /> Client downloads</label>
+        <label>Keep days<input name="days" defaultValue="0" /></label>
+        <Button type="submit" variant="secondary">Save policy</Button>
+      </form>
+      {note ? <p className="books-note">{note}</p> : null}
+    </section>
+  );
+}
+
 export function Documents({ clientId }) {
   const [library, setLibrary] = useState(null);
   const [error, setError] = useState("");
@@ -148,6 +201,7 @@ export function Documents({ clientId }) {
         </div>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <RequestTools clientId={clientId} />
       <ReviewQueue reviews={reviews} onChanged={async () => {
         const response = await fetch("/api/documents/reviews");
         const body = await readJson(response);

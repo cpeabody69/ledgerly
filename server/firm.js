@@ -208,6 +208,7 @@ export function firmHome(db, session) {
         overdueTasks: overdueTasks.length,
         upcomingDeadlines: deadlines.length,
         outstandingRequests: outstanding.length,
+        awaitingReview: outstanding.filter((request) => request.reviewStatus === "submitted").length,
       },
       bookkeeping: {
         monthLabel: monthLabel(),

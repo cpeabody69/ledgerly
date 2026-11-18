@@ -31,6 +31,9 @@ export function Portal({ session, onSession }) {
   const [portal, setPortal] = useState(null);
   const [error, setError] = useState("");
   const [pendingId, setPendingId] = useState("");
+  const [message, setMessage] = useState("");
+  const [mfaSecret, setMfaSecret] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
 
   async function load() {
     const response = await fetch("/api/portal");
@@ -111,6 +114,60 @@ export function Portal({ session, onSession }) {
           </div>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <section className="card">
+          <div className="card-header"><div><h2>Progress</h2><p>What the firm still has open for this client.</p></div></div>
+          <p className="firm-progress"><b>{portal?.requests?.filter((request) => request.status === "open").length || 0}</b> open requests · <b>{portal?.progress?.uncategorized || 0}</b> lines to categorize · <b>{portal?.progress?.monthsClosed || 0}</b> months closed</p>
+        </section>
+        <section className="card">
+          <div className="card-header"><div><h2>Messages</h2><p>Notes with the firm. They stay inside this client.</p></div></div>
+          <ul className="plain-list">
+            {(portal?.messages || []).map((item) => <li key={item.id}><span>{item.authorName}</span><small>{item.body}</small></li>)}
+          </ul>
+          <form onSubmit={async (event) => {
+            event.preventDefault();
+            setError("");
+            const response = await fetch("/api/portal/messages", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ body: message }),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              setError(body.error || "The message was not stored.");
+              return;
+            }
+            setMessage("");
+            await load();
+          }}>
+            <label>Message<input value={message} onChange={(event) => setMessage(event.target.value)} /></label>
+            <Button type="submit">Send</Button>
+          </form>
+        </section>
+        <section className="card">
+          <div className="card-header"><div><h2>Sign-in check</h2><p>{portal?.mfaEnabled ? "A second code is required at sign-in." : "Add a second code for the next sign-in."}</p></div></div>
+          {mfaSecret ? <p className="books-note">Setup secret: {mfaSecret}</p> : null}
+          <form onSubmit={async (event) => {
+            event.preventDefault();
+            setError("");
+            const response = await fetch(mfaSecret ? "/api/portal/mfa/confirm" : "/api/portal/mfa/enroll", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(mfaSecret ? { code: mfaCode } : {}),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              setError(body.error || "The sign-in check was not saved.");
+              return;
+            }
+            if (body.secret) setMfaSecret(body.secret);
+            else setMfaSecret("");
+            setMfaCode("");
+            await load();
+          }}>
+            {mfaSecret ? <label>Code<input value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} /></label> : null}
+            <Button type="submit" variant="secondary">{mfaSecret ? "Confirm code" : "Set up a code"}</Button>
+          </form>
+        </section>
         <div className="portal-stack">
           {(portal?.notifications || []).length ? (
             <section className="card" aria-label="Notifications">

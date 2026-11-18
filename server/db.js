@@ -6,6 +6,7 @@ import { firms } from "./accounts.js";
 import { ensureCharts } from "./ledger.js";
 import { ensureClose } from "./close.js";
 import { ensureTaxIntel } from "./tax-intel.js";
+import { ensurePortalDesk } from "./portal-desk.js";
 import { ensureWork } from "./work.js";
 import { ensureBanking } from "./banking.js";
 import { applyProfile, ensureFirmCrm, profileFields } from "./clients.js";
@@ -139,6 +140,7 @@ export function openDatabase(dbPath) {
   ensureExpenses(db);
   ensureTime(db);
   ensurePortal(db);
+  ensurePortalDesk(db);
   ensureTax(db);
   ensureTaxIntel(db);
   ensureAssistant(db);

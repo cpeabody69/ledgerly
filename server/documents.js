@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { accessScope, clientAllowed, lookupClient, recordAccessDenial } from "./access.js";
+import { revealDocument, scanDocument, sealDocument } from "./document-bytes.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS client_files (
@@ -93,6 +94,14 @@ export function ensureDocuments(db) {
   if (!requests) return;
   const requestColumns = new Set(db.prepare("PRAGMA table_info(document_requests)").all().map((column) => column.name));
   if (!requestColumns.has("due_on")) db.exec("ALTER TABLE document_requests ADD COLUMN due_on TEXT NOT NULL DEFAULT ''");
+  if (!requestColumns.has("review_status")) db.exec("ALTER TABLE document_requests ADD COLUMN review_status TEXT NOT NULL DEFAULT ''");
+}
+
+function approvalRequired(db, firmId) {
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'portal_policies'").get();
+  if (!table) return false;
+  const policy = db.prepare("SELECT request_approval FROM portal_policies WHERE firm_id = ?").get(firmId);
+  return Number(policy?.request_approval) === 1;
 }
 
 function previewKind(mediaType) {
@@ -125,7 +134,8 @@ function requestJson(row) {
     id: row.id,
     title: row.title,
     status: row.status,
-    statusLabel: open ? "Outstanding" : "Completed",
+    statusLabel: open ? (row.review_status === "submitted" ? "Waiting for review" : "Outstanding") : "Completed",
+    reviewStatus: row.review_status || "",
     dueOn: row.due_on || "",
     dueOnLabel: formatDue(row.due_on || ""),
     clientId: row.client_id,
@@ -313,6 +323,9 @@ export function storeDocument(db, session, input) {
   if (body.folderId && (!folder || folder.client_id !== client.id)) return fail(404, "Folder not found.");
   const bytes = fileBytes(body);
   if (!bytes) return fail(400, "Choose a synthetic file of 48 KB or less.");
+  const scan = scanDocument(bytes);
+  if (scan) return fail(400, scan);
+  const sealed = sealDocument(bytes);
   const duplicate = db.prepare(
     "SELECT id FROM client_files WHERE firm_id = ? AND client_id = ? AND name = ? AND byte_size = ?",
   ).get(session.firm_id, client.id, name, bytes.length);
@@ -348,16 +361,20 @@ export function storeDocument(db, session, input) {
       name,
       mediaType,
       bytes.length,
-      bytes,
+      sealed,
       requestId,
       transactionId,
       session.portal ? null : session.user_id,
       session.portal ? session.client_user_id : null,
       now,
     );
-    if (request) {
+    if (request && approvalRequired(db, session.firm_id)) {
       db.prepare(
-        "UPDATE document_requests SET status = 'complete' WHERE id = ? AND firm_id = ?",
+        "UPDATE document_requests SET review_status = 'submitted' WHERE id = ? AND firm_id = ?",
+      ).run(request.id, session.firm_id);
+    } else if (request) {
+      db.prepare(
+        "UPDATE document_requests SET status = 'complete', review_status = '' WHERE id = ? AND firm_id = ?",
       ).run(request.id, session.firm_id);
     }
     db.prepare(
@@ -408,7 +425,7 @@ export function readDocument(db, session, id) {
   return {
     name: row.name,
     mediaType: row.media_type,
-    bytes: Buffer.from(row.bytes),
+    bytes: revealDocument(row.bytes),
   };
 }
 
