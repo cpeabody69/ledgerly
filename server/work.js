@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { accessScope, lookupClient, scopeSql } from "./access.js";
+import { syncCloseIssues } from "./close.js";
 import { canApproveBills, canSeeTeamWork } from "./permissions.js";
 
 const SCHEMA = `
@@ -351,6 +352,7 @@ function targetFor(row) {
   if (row.source_type === "unreconciled_account") return { screen: "Transactions", transactionTab: "reconcile", bankAccountId: row.source_id };
   if (row.source_type === "unpaid_bill") return { screen: "Accounts Payable", billId: row.source_id };
   if (row.source_type === "bookkeeping_month") return { screen: "Transactions", transactionTab: "for_review" };
+  if (row.source_type === "close_issue") return { screen: "Close" };
   return null;
 }
 
@@ -882,6 +884,7 @@ function syncSources(db, session) {
   resolveSources(db, session, openKeys);
   syncSchedules(db, session);
   syncReminders(db, session);
+  syncCloseIssues(db, session);
 }
 
 function templateJson(row) {

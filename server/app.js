@@ -4,6 +4,17 @@ import path from "node:path";
 import { createClient, inviteMember, loadSession, openDatabase, openFirmSession, selectClient, sessionPayload, signIn, signOut } from "./db.js";
 import { addClientNote, archiveClient, listFirm, readClient, updateClient } from "./clients.js";
 import { firmHome } from "./firm.js";
+import {
+  closeBoard,
+  closePackageFile,
+  lockClose,
+  readClose,
+  readClosePackage,
+  reopenClose,
+  reviewClosePackage,
+  updateCloseCheck,
+  updateCloseStatus,
+} from "./close.js";
 import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
 import { listDocumentReviews, storeDocumentReview } from "./document-reviews.js";
 import { listPortal, readPortalDocument, signInPortal, submitPortalFile } from "./portal.js";
@@ -364,6 +375,92 @@ async function handle(req, res, db, options) {
       sort: url.searchParams.get("sort") || "",
     });
     send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/close") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, closeBoard(db, session, {
+      period: url.searchParams.get("period") || "",
+      year: url.searchParams.get("year") || "",
+      month: url.searchParams.get("month") || "",
+      status: url.searchParams.get("status") || "",
+      assignee: url.searchParams.get("assignee") || "",
+    }));
+    return;
+  }
+
+  const closeFile = pathname.match(/^\/api\/close\/([^/]+)\/package\.(csv|pdf)$/);
+  if (closeFile && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const file = closePackageFile(db, session, decodeURIComponent(closeFile[1]), {
+      period: url.searchParams.get("period") || "",
+      basis: url.searchParams.get("basis") || "",
+    }, closeFile[2]);
+    if (file.error) {
+      send(res, file.status, { error: file.error });
+      return;
+    }
+    res.writeHead(file.status, {
+      "content-type": file.contentType,
+      "content-disposition": `attachment; filename="${file.filename}"`,
+      "cache-control": "no-store",
+      "content-length": Buffer.byteLength(file.body),
+    });
+    res.end(file.body);
+    return;
+  }
+
+  const closePackage = pathname.match(/^\/api\/close\/([^/]+)\/package$/);
+  if (closePackage && (req.method === "GET" || req.method === "POST")) {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const clientId = decodeURIComponent(closePackage[1]);
+    const result = req.method === "GET"
+      ? readClosePackage(db, session, clientId, {
+        period: url.searchParams.get("period") || "",
+        basis: url.searchParams.get("basis") || "",
+      })
+      : reviewClosePackage(db, session, clientId, await readBody(req));
+    sendResult(res, result);
+    return;
+  }
+
+  const closeAction = pathname.match(/^\/api\/close\/([^/]+)\/(checks|status|lock|reopen)$/);
+  if (closeAction && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const clientId = decodeURIComponent(closeAction[1]);
+    const body = await readBody(req);
+    const action = closeAction[2];
+    const result = action === "checks"
+      ? updateCloseCheck(db, session, clientId, body)
+      : action === "status"
+        ? updateCloseStatus(db, session, clientId, body)
+        : action === "lock"
+          ? lockClose(db, session, clientId, body)
+          : reopenClose(db, session, clientId, body);
+    sendResult(res, result);
+    return;
+  }
+
+  const closeClient = pathname.match(/^\/api\/close\/([^/]+)$/);
+  if (closeClient && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, readClose(db, session, decodeURIComponent(closeClient[1]), url.searchParams.get("period") || ""));
     return;
   }
 

@@ -9,6 +9,21 @@ function asCents(value) {
   return Number(value || 0);
 }
 
+function explicitMonth(value) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return null;
+  const endDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return {
+    start: `${match[1]}-${match[2]}-01`,
+    end: `${match[1]}-${match[2]}-${String(endDay).padStart(2, "0")}`,
+    label: `${names[month - 1]} ${year}`,
+  };
+}
+
 function todayIso() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -26,7 +41,7 @@ export function loadStatement(db, firmId, clientId, { period, basis } = {}) {
   ).get(client.id, firmId);
   const selectedBasis = basis === "cash" ? "cash" : "accrual";
   const today = todayIso();
-  const resolved = resolvePeriod(period || "May 1 – May 31", today);
+  const resolved = explicitMonth(period) || resolvePeriod(period || "May 1 – May 31", today);
   const prior = priorRange(resolved);
   const accounts = db.prepare(
     `SELECT id, code, name, type, cash FROM accounts
