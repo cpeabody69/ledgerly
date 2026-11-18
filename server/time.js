@@ -68,6 +68,9 @@ function audit(db, session, action, entityType, entityId, clientId = null) {
 
 export function ensureTime(db) {
   db.exec(SCHEMA);
+  const columns = new Set(db.prepare("PRAGMA table_info(time_entries)").all().map((column) => column.name));
+  if (!columns.has("billable")) db.exec("ALTER TABLE time_entries ADD COLUMN billable INTEGER NOT NULL DEFAULT 1");
+  if (!columns.has("firm_invoice_id")) db.exec("ALTER TABLE time_entries ADD COLUMN firm_invoice_id TEXT");
   const missing = db.prepare(
     `SELECT users.id, users.firm_id, users.role, users.created_at
      FROM users
@@ -175,6 +178,7 @@ function entryJson(row) {
     invoiceNumber: row.invoice_number || "",
     invoiceStatus: row.invoice_status || "",
     billed: Boolean(row.invoice_id),
+    billable: Number(row.billable) !== 0,
   };
 }
 
@@ -336,6 +340,9 @@ export function createTimeEntry(db, session, input) {
       id, firm_id, client_id, work_id, user_id, staff_id, worked_on, hours_hundredths, note, invoice_id, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
   ).run(id, session.firm_id, client.id, work.id, actor.id, staff.id, workedOn, hours.hundredths, note, now);
+  if (body.billable === false) {
+    db.prepare("UPDATE time_entries SET billable = 0 WHERE id = ? AND firm_id = ?").run(id, session.firm_id);
+  }
   audit(db, session, "time.logged", "time_entry", id, client.id);
   const row = loadEntry(db, session, id, actor);
   return { status: 201, payload: { entry: entryJson(row) } };

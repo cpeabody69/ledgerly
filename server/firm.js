@@ -6,6 +6,7 @@ import { listRequestHistory } from "./documents.js";
 import { canSeeTeamWork, ROLE_LABEL } from "./permissions.js";
 import { closeBoard } from "./close.js";
 import { taxBoard } from "./tax-intel.js";
+import { openFirmInvoiceCount } from "./billing.js";
 import { ensureWork, workflowSnapshot } from "./work.js";
 
 const MONTHS = [
@@ -209,6 +210,7 @@ export function firmHome(db, session) {
         upcomingDeadlines: deadlines.length,
         outstandingRequests: outstanding.length,
         awaitingReview: outstanding.filter((request) => request.reviewStatus === "submitted").length,
+        openFirmInvoices: openFirmInvoiceCount(db, session),
       },
       bookkeeping: {
         monthLabel: monthLabel(),

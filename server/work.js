@@ -3,6 +3,7 @@ import { accessScope, lookupClient, scopeSql } from "./access.js";
 import { syncCloseIssues } from "./close.js";
 import { syncTaxIssues } from "./tax-intel.js";
 import { noteDocumentReminder } from "./portal-desk.js";
+import { syncFirmInvoices } from "./billing.js";
 import { canApproveBills, canSeeTeamWork } from "./permissions.js";
 
 const SCHEMA = `
@@ -356,6 +357,7 @@ function targetFor(row) {
   if (row.source_type === "bookkeeping_month") return { screen: "Transactions", transactionTab: "for_review" };
   if (row.source_type === "close_issue") return { screen: "Close" };
   if (row.source_type === "tax_issue") return { screen: "Tax Planning" };
+  if (row.source_type === "firm_invoice") return { screen: "Billing" };
   return null;
 }
 
@@ -890,6 +892,7 @@ function syncSources(db, session) {
   syncReminders(db, session);
   syncCloseIssues(db, session);
   syncTaxIssues(db, session);
+  syncFirmInvoices(db, session);
 }
 
 function templateJson(row) {
