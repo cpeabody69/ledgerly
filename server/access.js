@@ -74,21 +74,27 @@ export function clientAllowed(db, session, clientId) {
   return Boolean(row);
 }
 
+function preferredClientId(db, firmId, ids = null) {
+  const limit = ids ? ` AND id IN (${ids.map(() => "?").join(",")})` : "";
+  const params = ids ? [firmId, ...ids] : [firmId];
+  const open = db.prepare(
+    `SELECT id FROM clients WHERE firm_id = ?${limit} AND COALESCE(status, 'active') != 'archived' ORDER BY position, name LIMIT 1`,
+  ).get(...params);
+  if (open) return open.id;
+  return db.prepare(
+    `SELECT id FROM clients WHERE firm_id = ?${limit} ORDER BY position, name LIMIT 1`,
+  ).get(...params)?.id || null;
+}
+
 export function firstVisibleClientId(db, user) {
   ensureClientGrants(db);
   if (!user?.firm_id) return null;
-  const first = db.prepare(
-    "SELECT id FROM clients WHERE firm_id = ? ORDER BY position, name LIMIT 1",
-  ).get(user.firm_id);
-  if (canManageFirm(user.role)) return first?.id || null;
+  if (canManageFirm(user.role)) return preferredClientId(db, user.firm_id);
   const grants = db.prepare(
     "SELECT client_id FROM client_grants WHERE firm_id = ? AND user_id = ?",
   ).all(user.firm_id, user.id);
-  if (!grants.length) return first?.id || null;
-  const ids = grants.map((grant) => grant.client_id);
-  return db.prepare(
-    `SELECT id FROM clients WHERE firm_id = ? AND id IN (${ids.map(() => "?").join(",")}) ORDER BY position, name LIMIT 1`,
-  ).get(user.firm_id, ...ids)?.id || null;
+  if (!grants.length) return preferredClientId(db, user.firm_id);
+  return preferredClientId(db, user.firm_id, grants.map((grant) => grant.client_id));
 }
 
 export function recordAccessDenial(db, session, detail, clientId = null) {

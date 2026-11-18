@@ -48,6 +48,7 @@ CREATE INDEX IF NOT EXISTS firm_billing_by_firm ON firm_billing_events (firm_id,
 
 const NEW_WORK = [
   [/^\/api\/clients$/, "POST"],
+  [/^\/api\/clients\/[^/]+\/notes$/, "POST"],
   [/^\/api\/journal-entries$/, "POST"],
   [/^\/api\/invoices$/, "POST"],
   [/^\/api\/invoices\/[^/]+\/send$/, "POST"],

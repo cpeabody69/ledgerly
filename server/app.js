@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { createClient, inviteMember, loadSession, openDatabase, openFirmSession, selectClient, sessionPayload, signIn, signOut } from "./db.js";
-import { archiveClient, listFirm, readClient, updateClient } from "./clients.js";
+import { addClientNote, archiveClient, listFirm, readClient, updateClient } from "./clients.js";
+import { firmHome } from "./firm.js";
 import { addNote, addTag, archiveDocument, createDocumentRequest, createFolder, listDocuments, readDocument, readLibrary, removeDocument, storeDocument, updateDocument } from "./documents.js";
 import { listDocumentReviews, storeDocumentReview } from "./document-reviews.js";
 import { listPortal, readPortalDocument, signInPortal, submitPortalFile } from "./portal.js";
@@ -358,8 +359,22 @@ async function handle(req, res, db, options) {
       q: url.searchParams.get("q") || "",
       status: url.searchParams.get("status") || "",
       assignee: url.searchParams.get("assignee") || "",
+      kind: url.searchParams.get("kind") || "",
+      service: url.searchParams.get("service") || "",
+      sort: url.searchParams.get("sort") || "",
     });
     send(res, result.status, result.payload);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/firm") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = firmHome(db, session);
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 
@@ -713,6 +728,18 @@ async function handle(req, res, db, options) {
     const file = readDocument(db, session, id);
     if (!file) send(res, 404, { error: "File not found." });
     else sendBytes(res, file);
+    return;
+  }
+
+  const clientNote = pathname.match(/^\/api\/clients\/([^/]+)\/notes$/);
+  if (clientNote && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const result = addClientNote(db, session, decodeURIComponent(clientNote[1]), await readBody(req));
+    if (result.error) send(res, result.status, { error: result.error });
+    else send(res, result.status, result.payload);
     return;
   }
 

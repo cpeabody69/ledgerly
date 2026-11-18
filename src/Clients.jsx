@@ -53,19 +53,30 @@ function glance(count) {
 }
 
 function statusTone(status) {
+  if (status === "prospect") return "amber";
+  if (status === "onboarding") return "blue";
   if (status === "inactive") return "neutral";
   if (status === "archived") return "red";
   return "green";
 }
 
 const BUSINESS_TYPES = ["", "Sole proprietorship", "Partnership", "LLC", "S corporation", "C corporation", "Nonprofit"];
+const SERVICES = [
+  ["bookkeeping", "Bookkeeping"],
+  ["tax", "Tax preparation"],
+  ["payroll", "Payroll"],
+  ["advisory", "Advisory"],
+  ["other", "Other"],
+];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 function ClientForm({ client, members, onClose, onCreated }) {
   const [name, setName] = useState(client?.name || "");
   const [legalName, setLegalName] = useState(client?.legalName || "");
   const [industry, setIndustry] = useState(client?.industry || "");
+  const [clientKind, setClientKind] = useState(client?.clientKind === "individual" ? "individual" : "business");
   const [businessType, setBusinessType] = useState(client?.businessType || "");
+  const [services, setServices] = useState(client?.services || []);
   const [contactName, setContactName] = useState(client?.contactName || "");
   const [contactEmail, setContactEmail] = useState(client?.contactEmail || "");
   const [contactPhone, setContactPhone] = useState(client?.contactPhone || "");
@@ -74,7 +85,8 @@ function ClientForm({ client, members, onClose, onCreated }) {
   const [fiscalYearStart, setFiscalYearStart] = useState(client?.fiscalYearStart || "January");
   const [accountingMethod, setAccountingMethod] = useState(client?.accountingMethod || "accrual");
   const [assignedUserId, setAssignedUserId] = useState(client?.assignedUserId || "");
-  const [status, setStatus] = useState(client?.status === "inactive" ? "inactive" : "active");
+  const [teamUserIds, setTeamUserIds] = useState(client?.team?.map((member) => member.id) || []);
+  const [status, setStatus] = useState(client?.status || "active");
   const [notes, setNotes] = useState(client?.notes || "");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -86,8 +98,11 @@ function ClientForm({ client, members, onClose, onCreated }) {
     setPending(true);
     setError("");
     const payload = {
-      name, legalName, industry, businessType, contactName, contactEmail, contactPhone, address, taxId,
-      fiscalYearStart, accountingMethod, assignedUserId, status, notes,
+      name, legalName, industry, clientKind,
+      businessType: clientKind === "individual" ? "" : businessType,
+      services, contactName, contactEmail, contactPhone, address,
+      taxId: clientKind === "individual" ? "" : taxId,
+      fiscalYearStart, accountingMethod, assignedUserId, teamUserIds, status, notes,
     };
     const response = await fetch(client ? `/api/clients/${client.id}` : "/api/clients", {
       method: client ? "PATCH" : "POST",
@@ -114,13 +129,21 @@ function ClientForm({ client, members, onClose, onCreated }) {
           <button className="modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="form-grid">
-          <label className="field"><span>Business name</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label className="field"><span>{clientKind === "individual" ? "Name" : "Business name"}</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label className="field"><span>Legal name</span><input value={legalName} onChange={(event) => setLegalName(event.target.value)} /></label>
-          <label className="field"><span>Type</span>
-            <select value={businessType} onChange={(event) => setBusinessType(event.target.value)}>
-              {BUSINESS_TYPES.map((type) => <option value={type} key={type || "none"}>{type || "Not set"}</option>)}
+          <label className="field"><span>Profile</span>
+            <select value={clientKind} onChange={(event) => setClientKind(event.target.value)}>
+              <option value="business">Business</option>
+              <option value="individual">Individual</option>
             </select>
           </label>
+          {clientKind === "business" ? (
+            <label className="field"><span>Type</span>
+              <select value={businessType} onChange={(event) => setBusinessType(event.target.value)}>
+                {BUSINESS_TYPES.map((type) => <option value={type} key={type || "none"}>{type || "Not set"}</option>)}
+              </select>
+            </label>
+          ) : null}
           <label className="field"><span>Industry</span><input value={industry} onChange={(event) => setIndustry(event.target.value)} /></label>
           <label className="field"><span>Contact</span><input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label>
           <label className="field"><span>Email</span><input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} /></label>
@@ -131,8 +154,34 @@ function ClientForm({ client, members, onClose, onCreated }) {
               {members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
             </select>
           </label>
+          <fieldset className="field full access-clients">
+            <legend>Team</legend>
+            {members.map((member) => (
+              <label key={member.id}>
+                <input
+                  type="checkbox"
+                  checked={teamUserIds.includes(member.id)}
+                  onChange={() => setTeamUserIds((current) => current.includes(member.id) ? current.filter((id) => id !== member.id) : [...current, member.id])}
+                />
+                <span>{member.name}</span>
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="field full access-clients">
+            <legend>Services</legend>
+            {SERVICES.map(([id, label]) => (
+              <label key={id}>
+                <input
+                  type="checkbox"
+                  checked={services.includes(id)}
+                  onChange={() => setServices((current) => current.includes(id) ? current.filter((service) => service !== id) : [...current, id])}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </fieldset>
           <label className="field full"><span>Address</span><input value={address} onChange={(event) => setAddress(event.target.value)} /></label>
-          <label className="field"><span>Tax ID</span><input value={taxId} onChange={(event) => setTaxId(event.target.value)} placeholder="12-3456789" autoComplete="off" /></label>
+          {clientKind === "business" ? <label className="field"><span>Tax ID</span><input value={taxId} onChange={(event) => setTaxId(event.target.value)} placeholder="12-3456789" autoComplete="off" /></label> : <p className="books-note">Individual profiles do not store a tax ID.</p>}
           <label className="field"><span>Fiscal year starts</span>
             <select value={fiscalYearStart} onChange={(event) => setFiscalYearStart(event.target.value)}>
               {MONTHS.map((month) => <option key={month}>{month}</option>)}
@@ -146,8 +195,11 @@ function ClientForm({ client, members, onClose, onCreated }) {
           </label>
           <label className="field"><span>Status</span>
             <select value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="prospect">Prospect</option>
+              <option value="onboarding">Onboarding</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
+              {status === "archived" ? <option value="archived">Archived</option> : null}
             </select>
           </label>
           <label className="field full"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} /></label>
@@ -262,6 +314,7 @@ function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
   const [client, setClient] = useState(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -280,6 +333,26 @@ function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
       cancelled = true;
     };
   }, [clientId]);
+
+  async function addNote(event) {
+    event.preventDefault();
+    if (!note.trim()) return;
+    setPending(true);
+    setError("");
+    const response = await fetch(`/api/clients/${encodeURIComponent(clientId)}/notes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: note }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setPending(false);
+    if (!response.ok) {
+      setError(body.error || "The note was not saved.");
+      return;
+    }
+    setNote("");
+    setClient(body.client);
+  }
 
   async function archive() {
     setPending(true);
@@ -312,16 +385,40 @@ function ClientProfile({ clientId, onClose, onOpen, onEdit, onChanged }) {
             <div className="drawer-section">
               <h3>Profile</h3>
               <dl>
-                <div><dt>Type</dt><dd>{client.businessType || "—"}</dd></div>
+                <div><dt>Kind</dt><dd>{client.clientKindLabel || "Business"}{client.businessType ? ` · ${client.businessType}` : ""}</dd></div>
+                <div><dt>Services</dt><dd>{client.serviceLabels?.length ? client.serviceLabels.join(", ") : "—"}</dd></div>
                 <div><dt>Industry</dt><dd>{client.industry || "—"}</dd></div>
                 <div><dt>Contact</dt><dd>{[client.contactName, client.contactEmail, client.contactPhone].filter(Boolean).join(" · ") || "—"}</dd></div>
                 <div><dt>Address</dt><dd>{client.address || "—"}</dd></div>
-                <div><dt>Tax ID</dt><dd>{client.taxId || "—"}</dd></div>
+                <div><dt>Tax ID</dt><dd>{client.clientKind === "individual" ? "Not stored" : (client.taxId || "—")}</dd></div>
                 <div><dt>Fiscal year</dt><dd>{client.fiscalYearStart}</dd></div>
                 <div><dt>Method</dt><dd>{client.accountingMethodLabel}</dd></div>
                 <div><dt>Accountant</dt><dd>{client.assignedUserName || "Unassigned"}</dd></div>
+                <div><dt>Team</dt><dd>{client.team?.length ? client.team.map((member) => member.name).join(", ") : "—"}</dd></div>
                 <div><dt>Notes</dt><dd>{client.notes || "—"}</dd></div>
               </dl>
+            </div>
+            <div className="drawer-section">
+              <h3>Deadlines</h3>
+              {client.deadlines?.length ? (
+                <ul className="plain-list">{client.deadlines.map((item) => <li key={`${item.kind}-${item.id}`}><b>{item.title}</b> · {item.dueOn} · {item.kind === "request" ? "Document request" : "Task"}</li>)}</ul>
+              ) : <p className="books-note">No open deadlines.</p>}
+            </div>
+            <div className="drawer-section">
+              <h3>Document requests</h3>
+              {client.documentRequests?.outstanding?.length ? (
+                <ul className="plain-list">{client.documentRequests.outstanding.map((request) => <li key={request.id}><b>{request.title}</b> · {request.dueOnLabel || "No due date"}</li>)}</ul>
+              ) : <p className="books-note">No outstanding requests.</p>}
+            </div>
+            <div className="drawer-section">
+              <h3>Notes</h3>
+              <form className="client-task-form" onSubmit={addNote}>
+                <label className="field"><span>Add a note</span><textarea aria-label="Client note" value={note} onChange={(event) => setNote(event.target.value)} rows={2} /></label>
+                <Button type="submit" disabled={pending || !note.trim()}>{pending ? "Saving…" : "Save note"}</Button>
+              </form>
+              {client.noteHistory?.length ? (
+                <ul className="plain-list">{client.noteHistory.map((entry) => <li key={entry.id}><b>{entry.authorName}</b> · {entry.body}</li>)}</ul>
+              ) : <p className="books-note">No notes yet.</p>}
             </div>
             <ClientTasks clientId={clientId} />
             <div className="drawer-section">
@@ -413,6 +510,9 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("active");
   const [assignee, setAssignee] = useState("");
+  const [kind, setKind] = useState("");
+  const [service, setService] = useState("");
+  const [sort, setSort] = useState("");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [profileId, setProfileId] = useState(null);
@@ -428,9 +528,15 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
     const q = next.q ?? query;
     const nextStatus = next.status ?? status;
     const nextAssignee = next.assignee ?? assignee;
+    const nextKind = next.kind ?? kind;
+    const nextService = next.service ?? service;
+    const nextSort = next.sort ?? sort;
     if (q.trim()) params.set("q", q.trim());
     if (nextStatus) params.set("status", nextStatus);
     if (nextAssignee) params.set("assignee", nextAssignee);
+    if (nextKind) params.set("kind", nextKind);
+    if (nextService) params.set("service", nextService);
+    if (nextSort) params.set("sort", nextSort);
     const [clientResponse, fileResponse] = await Promise.all([
       fetch(`/api/clients?${params.toString()}`),
       fetch("/api/documents"),
@@ -482,7 +588,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
     return () => {
       cancelled = true;
     };
-  }, [query, status, assignee]);
+  }, [query, status, assignee, kind, service, sort]);
 
   const clients = firm?.clients || [];
   const visible = clients;
@@ -499,7 +605,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
       <div className="page-header">
         <div>
           <h1>Clients</h1>
-          <p>Each client’s assignee, status, open tasks, and books updated date.</p>
+          <p>Profiles, team, services, deadlines, and the books for each client.</p>
         </div>
         <div className="header-actions">
           <Button variant="secondary" icon="upload" onClick={() => setRequesting(true)}>Request documents</Button>
@@ -518,6 +624,7 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
         <div className="portal-stats">
           <span><b>{firm ? counts.total : "—"}</b>Total</span>
           <span><b>{firm ? counts.active : "—"}</b>Active</span>
+          <span><b>{firm ? counts.onboarding || 0 : "—"}</b>Onboarding</span>
           <span><b>{firm ? counts.inactive : "—"}</b>Inactive</span>
           <span><b>{firm ? counts.needingAttention : "—"}</b>Needing attention</span>
           <span><b>{firm ? counts.recentlyAdded : "—"}</b>Recently added</span>
@@ -534,9 +641,33 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
               <label className="field"><span>Status</span>
                 <select aria-label="Status" value={status} onChange={(event) => setStatus(event.target.value)}>
                   <option value="">All</option>
+                  <option value="prospect">Prospect</option>
+                  <option value="onboarding">Onboarding</option>
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                   <option value="archived">Archived</option>
+                </select>
+              </label>
+              <label className="field"><span>Kind</span>
+                <select aria-label="Kind" value={kind} onChange={(event) => setKind(event.target.value)}>
+                  <option value="">All</option>
+                  <option value="business">Business</option>
+                  <option value="individual">Individual</option>
+                </select>
+              </label>
+              <label className="field"><span>Service</span>
+                <select aria-label="Service" value={service} onChange={(event) => setService(event.target.value)}>
+                  <option value="">All</option>
+                  {SERVICES.map(([id, label]) => <option value={id} key={id}>{label}</option>)}
+                </select>
+              </label>
+              <label className="field"><span>Sort</span>
+                <select aria-label="Sort" value={sort} onChange={(event) => setSort(event.target.value)}>
+                  <option value="">Firm order</option>
+                  <option value="name">Name</option>
+                  <option value="status">Status</option>
+                  <option value="assignee">Assignee</option>
+                  <option value="newest">Newest</option>
                 </select>
               </label>
               <label className="field"><span>Assignee</span>
@@ -569,10 +700,10 @@ export function Clients({ selectedClientId, onOpenClient, onReview, onSession, f
                   <td>
                     <div className="customer">
                       <span className={`avatar ${COLORS[index % COLORS.length]}`}>{client.initials}</span>
-                      <span><b>{client.name}</b><small>{[client.businessType, client.industry].filter(Boolean).join(" · ") || "Client"}</small></span>
+                      <span><b>{client.name}</b><small>{[client.clientKindLabel, client.businessType, client.serviceLabels?.join(", ")].filter(Boolean).join(" · ") || "Client"}</small></span>
                     </div>
                   </td>
-                  <td>{client.assignedUserName || "Unassigned"}</td>
+                  <td>{client.assignedUserName || "Unassigned"}{client.team?.length > 1 ? ` +${client.team.length - 1}` : ""}</td>
                   <td><span className={`badge ${statusTone(client.status)}`}>{client.statusLabel}</span></td>
                   <td>{client.tasks?.length ? client.tasks.map((task) => task.label).join(" · ") : "None"}</td>
                   <td><strong>{client.revenue}</strong></td>
