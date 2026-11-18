@@ -123,6 +123,7 @@ export function FirmHome({ onOpenClient, onOpenClients, onOpenQueue, onOpenClose
         <button type="button" className="card firm-metric" onClick={onOpenQueue}><b>{counts ? counts.upcomingDeadlines : "—"}</b><span>Deadlines in 14 days</span></button>
         <button type="button" className="card firm-metric" onClick={onOpenClients}><b>{counts ? counts.outstandingRequests : "—"}</b><span>Document requests</span></button>
         <button type="button" className="card firm-metric" onClick={onOpenClients}><b>{counts ? counts.awaitingReview : "—"}</b><span>Awaiting review</span></button>
+        <button type="button" className="card firm-metric" onClick={onOpenClients}><b>{counts ? counts.openFirmInvoices : "—"}</b><span>Firm invoices</span></button>
       </div>
       <section className="card workflow-summary">
         <div className="card-header"><div><h2>Workflow</h2><p>Completion, overdue work, and clients that still have an accounting task.</p></div></div>

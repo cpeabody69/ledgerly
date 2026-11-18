@@ -31,6 +31,17 @@ import {
 } from "./portal-desk.js";
 import { createExpense, listExpenses, updateReceiptSetting } from "./expenses.js";
 import { createTimeEntry, createWork, invoiceTime, listTime, readTimeEntry, releaseInvoicedTime } from "./time.js";
+import {
+  addFirmCredit,
+  approveFirmInvoice,
+  billingBoard,
+  billingReports,
+  draftFirmInvoice,
+  generateRecurring,
+  recordFeePayment,
+  runRecurringBilling,
+  saveEngagement,
+} from "./billing.js";
 import { createInvoice, discardInvoice, listInvoices, recordPayment, sendInvoice, voidInvoice } from "./invoices.js";
 import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
@@ -820,6 +831,69 @@ async function handle(req, res, db, options) {
     const result = invoiceTime(db, session, await readBody(req));
     if (result.error) send(res, result.status, { error: result.error });
     else send(res, result.status, result.payload);
+    return;
+  }
+
+  if (pathname === "/api/billing" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, billingBoard(db, session));
+    return;
+  }
+
+  if (pathname === "/api/billing/reports" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, billingReports(db, session));
+    return;
+  }
+
+  if (pathname === "/api/billing/engagements" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, saveEngagement(db, session, await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/billing/invoices" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, draftFirmInvoice(db, session, await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/billing/recurring" && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, generateRecurring(db, session));
+    return;
+  }
+
+  const firmInvoiceAction = pathname.match(/^\/api\/billing\/invoices\/([^/]+)\/(approve|payments|credits)$/);
+  if (firmInvoiceAction && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const id = decodeURIComponent(firmInvoiceAction[1]);
+    const action = firmInvoiceAction[2];
+    const body = action === "approve" ? null : await readBody(req);
+    const result = action === "approve"
+      ? approveFirmInvoice(db, session, id)
+      : action === "payments"
+        ? recordFeePayment(db, session, id, body)
+        : addFirmCredit(db, session, id, body);
+    sendResult(res, result);
     return;
   }
 
@@ -1646,6 +1720,23 @@ export function start(dbPath, port = 0, options = {}) {
   });
   return new Promise((resolve) => {
     server.listen(port, "127.0.0.1", () => {
+      let timer = null;
+      try {
+        runRecurringBilling(db);
+        timer = setInterval(() => {
+          try {
+            runRecurringBilling(db);
+          } catch (error) {
+            console.error(error);
+          }
+        }, 60 * 60 * 1000);
+        if (typeof timer.unref === "function") timer.unref();
+      } catch (error) {
+        console.error(error);
+      }
+      server.on("close", () => {
+        if (timer) clearInterval(timer);
+      });
       resolve({ server, db, port: server.address().port });
     });
   });
