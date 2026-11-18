@@ -5,6 +5,7 @@ import { ChecklistBanner, OnboardingScreen, PublicAuth } from "./AuthScreens.jsx
 import { SubscribeReturn, SubscriptionBanner } from "./Subscription.jsx";
 import { Privacy } from "./Privacy.jsx";
 import { Terms } from "./Terms.jsx";
+import { ProductSite } from "./ProductSite.jsx";
 
 const PUBLIC_PATHS = new Set(["/register", "/forgot-password", "/reset-password", "/verify-email", "/invitation"]);
 
@@ -49,6 +50,8 @@ export function App() {
   if (path === "/terms") return <Terms go={go} />;
   if (path === "/privacy") return <Privacy go={go} />;
   if (session === undefined) return <div className="sign-in" />;
+  if (path === "/" && !session) return <ProductSite path={path} go={go} onSession={setSession} />;
+  if (path === "/pricing" || path === "/demo" || path === "/beta") return <ProductSite path={path} go={go} onSession={setSession} />;
   if (path === "/subscribe/return" && session) {
     return <SubscribeReturn session={session} onSession={setSession} go={go} />;
   }
