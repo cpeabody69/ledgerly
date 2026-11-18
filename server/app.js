@@ -25,6 +25,18 @@ import { getJournalEntry, postJournalEntry, readLedger } from "./ledger.js";
 import { bulkTransactions, categorizeTransaction, completeReconciliation, createBankAccount, createTransaction, excludeTransaction, importTransactions, listBanking, listTransactions } from "./banking.js";
 import { readStatements } from "./statements.js";
 import { addTaxNote, readTax, readTaxWorkpaper, storeTaxWorkpaper, updateTax } from "./tax.js";
+import {
+  markTaxReady,
+  readTaxIntel,
+  reviewTaxFlag,
+  runTaxScenario,
+  saveTaxAdjustment,
+  saveTaxMapping,
+  saveTaxPayment,
+  saveTaxProfile,
+  taxBoard,
+  taxWorkpaperFile,
+} from "./tax-intel.js";
 import { approveAssistant, askAssistant, listAssistant } from "./assistant.js";
 import {
   confirmCheckout,
@@ -1007,6 +1019,72 @@ async function handle(req, res, db, options) {
       return;
     }
     sendResult(res, completeReconciliation(db, session, await readBody(req)));
+    return;
+  }
+
+  if (pathname === "/api/tax-intel" && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, taxBoard(db, session, { year: url.searchParams.get("year") || "" }));
+    return;
+  }
+
+  const taxFile = pathname.match(/^\/api\/tax-intel\/([^/]+)\/workpaper\.(csv|pdf)$/);
+  if (taxFile && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const file = taxWorkpaperFile(db, session, decodeURIComponent(taxFile[1]), { year: url.searchParams.get("year") || "" }, taxFile[2]);
+    if (file.error) {
+      send(res, file.status, { error: file.error });
+      return;
+    }
+    res.writeHead(file.status, {
+      "content-type": file.contentType,
+      "content-disposition": `attachment; filename="${file.filename}"`,
+      "cache-control": "no-store",
+      "content-length": Buffer.byteLength(file.body),
+    });
+    res.end(file.body);
+    return;
+  }
+
+  const taxAction = pathname.match(/^\/api\/tax-intel\/([^/]+)\/(profile|mappings|adjustments|payments|flags|scenario|review)$/);
+  if (taxAction && req.method === "POST") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    const clientId = decodeURIComponent(taxAction[1]);
+    const body = await readBody(req);
+    const action = taxAction[2];
+    const result = action === "profile"
+      ? saveTaxProfile(db, session, clientId, body)
+      : action === "mappings"
+        ? saveTaxMapping(db, session, clientId, body)
+        : action === "adjustments"
+          ? saveTaxAdjustment(db, session, clientId, body)
+          : action === "payments"
+            ? saveTaxPayment(db, session, clientId, body)
+            : action === "flags"
+              ? reviewTaxFlag(db, session, clientId, body)
+              : action === "scenario"
+                ? runTaxScenario(db, session, clientId, body)
+                : markTaxReady(db, session, clientId, body);
+    sendResult(res, result);
+    return;
+  }
+
+  const taxClient = pathname.match(/^\/api\/tax-intel\/([^/]+)$/);
+  if (taxClient && req.method === "GET") {
+    if (!session) {
+      send(res, 401, { error: "Sign in required." });
+      return;
+    }
+    sendResult(res, readTaxIntel(db, session, decodeURIComponent(taxClient[1]), url.searchParams.get("year") || ""));
     return;
   }
 
